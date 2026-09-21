@@ -9,6 +9,7 @@ export interface MediaSlot {
   aspectRatio: number;
   isReady: boolean;
   needsUpload: boolean;
+  lastVideoTime: number;
 }
 
 export class MediaManager {
@@ -31,9 +32,29 @@ export class MediaManager {
       0,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
-      new Uint8Array([10, 24, 40, 255])
+      new Uint8Array([8, 20, 36, 255])
     );
     this.default1x1Texture = tex;
+
+    // Bind unlock for video autoplay across browsers
+    this.bindUnlockGesture();
+  }
+
+  private bindUnlockGesture(): void {
+    const unlock = () => {
+      for (const slot of this.slots.values()) {
+        if (slot.videoElement && slot.videoElement.paused) {
+          slot.videoElement.play().catch(() => {});
+        }
+      }
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('touchstart', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+
+    window.addEventListener('click', unlock, { once: true });
+    window.addEventListener('touchstart', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
   }
 
   public register(id: EnvironmentId, asset: EnvironmentAsset): void {
@@ -55,7 +76,7 @@ export class MediaManager {
       0,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
-      new Uint8Array([12, 28, 48, 255])
+      new Uint8Array([8, 20, 36, 255])
     );
 
     const slot: MediaSlot = {
@@ -67,6 +88,7 @@ export class MediaManager {
       aspectRatio: 16 / 9,
       isReady: false,
       needsUpload: false,
+      lastVideoTime: -1,
     };
 
     this.slots.set(id, slot);
@@ -82,6 +104,7 @@ export class MediaManager {
     video.loop = true;
     video.playsInline = true;
     video.autoplay = true;
+    video.preload = 'auto';
     video.crossOrigin = 'anonymous';
 
     const fallbackToImage = () => {
@@ -93,7 +116,7 @@ export class MediaManager {
       video.removeAttribute('src');
       video.load();
 
-      // Load Image
+      // Load Image fallback
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
@@ -104,12 +127,12 @@ export class MediaManager {
         this.uploadImageToTexture(slot);
       };
       img.onerror = () => {
-        console.warn(`[PĀNI Media] Image fallback also failed for: ${asset.image}`);
+        console.warn(`[PĀNI Media] Image fallback failed for: ${asset.image}`);
       };
       img.src = asset.image;
     };
 
-    // Video success handlers
+    // Video success handler
     const onVideoReady = () => {
       if (videoResolved) return;
       videoResolved = true;
@@ -122,25 +145,26 @@ export class MediaManager {
       slot.isReady = true;
 
       video.play().catch(() => {
-        // Autoplay policy might catch, still try to render
+        // Autoplay may wait for user gesture; handled by bindUnlockGesture
       });
     };
 
     video.addEventListener('canplay', onVideoReady, { once: true });
+    video.addEventListener('loadeddata', onVideoReady, { once: true });
     video.addEventListener('error', fallbackToImage, { once: true });
 
-    // In case video stalls or does not exist, trigger fallback after 1.5s timeout
+    // Fallback if video takes too long or fails to load
     const timeoutId = window.setTimeout(() => {
       if (!videoResolved && video.readyState < 2) {
         fallbackToImage();
       }
-    }, 1500);
+    }, 2500);
 
     const clearTimer = () => window.clearTimeout(timeoutId);
     video.addEventListener('canplay', clearTimer, { once: true });
     video.addEventListener('error', clearTimer, { once: true });
 
-    // Watch for later playback failure
+    // Handle later playback errors gracefully
     video.addEventListener('error', () => {
       if (slot.type === 'video') {
         fallbackToImage();
@@ -164,7 +188,6 @@ export class MediaManager {
       gl.UNSIGNED_BYTE,
       slot.imageElement
     );
-    gl.generateMipmap?.(gl.TEXTURE_2D);
   }
 
   public updateFrame(id: EnvironmentId): void {
@@ -172,6 +195,16 @@ export class MediaManager {
     if (!slot || !slot.isReady) return;
 
     if (slot.type === 'video' && slot.videoElement && slot.videoElement.readyState >= 2) {
+      const vid = slot.videoElement;
+      // Ensure video is playing
+      if (vid.paused) {
+        vid.play().catch(() => {});
+      }
+
+      // Avoid redundant texture uploads when frame hasn't advanced
+      if (vid.currentTime === slot.lastVideoTime) return;
+      slot.lastVideoTime = vid.currentTime;
+
       const gl = this.gl;
       gl.bindTexture(gl.TEXTURE_2D, slot.texture);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -181,8 +214,15 @@ export class MediaManager {
         gl.RGBA,
         gl.RGBA,
         gl.UNSIGNED_BYTE,
-        slot.videoElement
+        vid
       );
+    }
+  }
+
+  public play(id: EnvironmentId): void {
+    const slot = this.slots.get(id);
+    if (slot?.videoElement && slot.videoElement.paused) {
+      slot.videoElement.play().catch(() => {});
     }
   }
 

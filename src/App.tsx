@@ -106,9 +106,9 @@ export const App: React.FC = () => {
 
       {/* Interactive UI Layers */}
       <div className="ui-layer">
-        {/* Phase 1: Ocean Opening */}
+        {/* Phase 1: Ocean Opening & Dive Recession */}
         <OpeningUI
-          isVisible={phase === 'opening'}
+          isVisible={phase === 'opening' || phase === 'diving'}
           onStart={handleStart}
         />
 

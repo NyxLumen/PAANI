@@ -14,7 +14,7 @@ export const IntroUI: React.FC<IntroUIProps> = ({ text, holdDuration, onComplete
     const el = textRef.current;
     if (!el) return;
 
-    gsap.set(el, { opacity: 0, y: 15, filter: 'blur(8px)' });
+    gsap.set(el, { opacity: 0, y: 8, filter: 'blur(5px)' });
 
     const tl = gsap.timeline({
       onComplete: () => {
@@ -22,25 +22,25 @@ export const IntroUI: React.FC<IntroUIProps> = ({ text, holdDuration, onComplete
       },
     });
 
-    // Reveal in
+    // Gentle contemplative reveal
     tl.to(el, {
-      opacity: 1,
+      opacity: 0.92,
       y: 0,
       filter: 'blur(0px)',
-      duration: 1.8,
-      ease: 'power2.out',
+      duration: 2.0,
+      ease: 'sine.out',
     });
 
-    // Hold duration
+    // Hold briefly
     tl.to({}, { duration: holdDuration });
 
-    // Dissolve out
+    // Quiet dissolve
     tl.to(el, {
       opacity: 0,
-      y: -10,
-      filter: 'blur(6px)',
-      duration: 1.4,
-      ease: 'power2.inOut',
+      y: -6,
+      filter: 'blur(4px)',
+      duration: 1.6,
+      ease: 'sine.inOut',
     });
 
     return () => {

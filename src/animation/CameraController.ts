@@ -7,7 +7,7 @@ export class CameraController {
   private isTransitioning: boolean = false;
   private ambientTween: gsap.core.Tween | null = null;
 
-  // Base camera values
+  // Camera state values
   public values = {
     cameraOffsetX: 0,
     cameraOffsetY: 0,
@@ -29,13 +29,13 @@ export class CameraController {
     this.bindTicker();
   }
 
-  // Gentle organic ocean swell at water level
+  // Gentle low-frequency organic camera swell at water level
   private startAmbientOceanBob(): void {
     const bobObj = { y: 0, tilt: 0 };
     this.ambientTween = gsap.to(bobObj, {
-      y: 0.012,
-      tilt: 0.005,
-      duration: 3.8,
+      y: 0.008,
+      tilt: 0.003,
+      duration: 4.2,
       ease: 'sine.inOut',
       yoyo: true,
       repeat: -1,
@@ -69,6 +69,16 @@ export class CameraController {
     });
   }
 
+  /**
+   * START -> DIVE TIMELINE:
+   * 0.0s: START begins disappearing (handled in OpeningUI)
+   * 0.0–0.8s: PĀNI recedes and fades
+   * 0.2–1.8s: Camera accelerates toward the horizon
+   * 1.0–2.0s: Ocean scale increases and water fills more of the viewport
+   * 1.5–2.2s: Strong but controlled surface distortion begins
+   * 2.0–2.5s: Peak refraction / chromatic distortion
+   * 2.2s+: Reveal underwater.mp4 via liquid break-through transition mask
+   */
   public executeDive(callbacks: {
     onSurfaceContact?: () => void;
     onSubmerged?: () => void;
@@ -81,13 +91,14 @@ export class CameraController {
     const tl = gsap.timeline({
       onComplete: () => {
         this.isDiving = false;
-        // Swap textures so environmentA becomes underwater
         this.renderer.setState({
           environmentA: 'underwater',
           environmentB: 'underwater',
           transitionProgress: 0.0,
         });
         this.values.transitionProgress = 0.0;
+        this.values.distortionAmount = 0.0;
+        this.values.chromaticAberration = 0.002;
         callbacks.onComplete?.();
       },
     });
@@ -97,55 +108,74 @@ export class CameraController {
       environmentA: 'ocean',
       environmentB: 'underwater',
       transitionType: 0,
+      transitionProgress: 0.0,
     });
 
-    // 1. Camera accelerates toward the horizon & water surface
-    tl.to(this.values, {
-      cameraZoom: 1.45,
-      cameraOffsetY: -0.14,
-      cameraTilt: -0.015,
-      duration: 1.6,
-      ease: 'power2.in',
-    });
+    // Ensure underwater video is warmed up and playing
+    this.renderer.getMediaManager().play('underwater');
 
-    // 2. Optical distortion and chromatic aberration ramp up on approach
+    // 0.2–1.8s: Camera accelerates toward the horizon
+    // 1.0–2.0s: Ocean scale increases, camera plunges downward toward water surface
     tl.to(
       this.values,
       {
-        distortionAmount: 0.85,
-        chromaticAberration: 0.038,
-        duration: 0.9,
-        ease: 'power1.in',
-        onComplete: () => callbacks.onSurfaceContact?.(),
+        cameraZoom: 1.58,
+        cameraOffsetY: -0.15,
+        cameraTilt: -0.012,
+        duration: 1.8,
+        ease: 'power2.in',
       },
-      '-=0.8'
+      0.2
     );
 
-    // 3. Piercing the surface: transition mask sweeps through
+    // 1.5–2.2s: Strong but controlled surface distortion
+    tl.to(
+      this.values,
+      {
+        distortionAmount: 0.72,
+        duration: 0.7,
+        ease: 'power1.in',
+      },
+      1.5
+    );
+
+    // 2.0–2.5s: Peak refraction / chromatic distortion
+    tl.to(
+      this.values,
+      {
+        chromaticAberration: 0.034,
+        duration: 0.5,
+        ease: 'power2.in',
+        onComplete: () => callbacks.onSurfaceContact?.(),
+      },
+      2.0
+    );
+
+    // 2.2s+: Reveal underwater.mp4 via liquid transition mask
     tl.to(
       this.values,
       {
         transitionProgress: 1.0,
-        duration: 1.6,
+        duration: 1.5,
         ease: 'power2.inOut',
         onStart: () => callbacks.onSubmerged?.(),
       },
-      '-=0.3'
+      2.2
     );
 
-    // 4. Settling underwater: camera decelerates, distortion relaxes
+    // 2.6–3.8s: Camera settles underwater, distortion relaxes, natural light takes over
     tl.to(
       this.values,
       {
         cameraZoom: 1.04,
         cameraOffsetY: 0.0,
         cameraTilt: 0.0,
-        distortionAmount: 0.04,
-        chromaticAberration: 0.003,
-        duration: 1.5,
+        distortionAmount: 0.02,
+        chromaticAberration: 0.002,
+        duration: 1.3,
         ease: 'power3.out',
       },
-      '-=0.8'
+      2.6
     );
 
     return tl;
@@ -155,46 +185,51 @@ export class CameraController {
     if (this.isTransitioning) return;
 
     if (direction === 'left') {
-      // Shore hover: pull left, slight counter-clockwise tilt, turquoise warm bias
+      // Shore hover: subtle camera pull left, slight warm coastal visual bias
       gsap.to(this.values, {
-        cameraOffsetX: -0.05,
-        cameraTilt: -0.01,
+        cameraOffsetX: -0.045,
+        cameraTilt: -0.008,
         choiceHoverBiasX: -1.0,
         choiceHoverBiasY: 0.0,
-        cameraZoom: 1.07,
-        duration: 0.9,
+        cameraZoom: 1.05,
+        duration: 0.8,
         ease: 'power2.out',
         overwrite: 'auto',
       });
     } else if (direction === 'down') {
-      // Descend hover: pull down, dark abyss bias
+      // Descend hover: scene gently pulls downward, darker/deeper visual bias
       gsap.to(this.values, {
-        cameraOffsetY: -0.06,
+        cameraOffsetY: -0.05,
         cameraOffsetX: 0.0,
-        cameraTilt: 0.008,
+        cameraTilt: 0.006,
         choiceHoverBiasX: 0.0,
         choiceHoverBiasY: -1.0,
-        cameraZoom: 1.08,
-        duration: 0.9,
+        cameraZoom: 1.06,
+        duration: 0.8,
         ease: 'power2.out',
         overwrite: 'auto',
       });
     } else {
-      // Reset to neutral
+      // Return to neutral
       gsap.to(this.values, {
         cameraOffsetX: 0.0,
         cameraOffsetY: 0.0,
         cameraTilt: 0.0,
         choiceHoverBiasX: 0.0,
         choiceHoverBiasY: 0.0,
-        cameraZoom: 1.04,
-        duration: 0.8,
+        cameraZoom: 1.03,
+        duration: 0.7,
         ease: 'power2.out',
         overwrite: 'auto',
       });
     }
   }
 
+  /**
+   * BRANCH TRANSITIONS:
+   * Shore: UNDERWATER → rising toward light → surface → coastal water → SHORE (seawater travelling across wet sand)
+   * Deep: UNDERWATER → camera accelerates downward → brightness decreases → particles increase → blue shifts toward near-black → DEEP
+   */
   public executeBranchTransition(
     target: 'shore' | 'deep',
     onComplete?: () => void
@@ -212,6 +247,9 @@ export class CameraController {
     this.values.transitionType = transitionType;
     this.values.transitionProgress = 0.0;
 
+    // Warm up destination video
+    this.renderer.getMediaManager().play(target);
+
     const tl = gsap.timeline({
       onComplete: () => {
         this.isTransitioning = false;
@@ -226,71 +264,75 @@ export class CameraController {
         this.values.cameraZoom = 1.0;
         this.values.choiceHoverBiasX = 0.0;
         this.values.choiceHoverBiasY = 0.0;
+        this.values.distortionAmount = 0.0;
+        this.values.chromaticAberration = 0.002;
         onComplete?.();
       },
     });
 
     if (isShore) {
-      // Shore: sweep leftward with warm sunlight
+      // Shore: rising toward light and coastal water
       tl.to(this.values, {
-        cameraOffsetX: -0.15,
+        cameraOffsetY: 0.12, // rise towards surface
+        cameraOffsetX: -0.08,
+        cameraZoom: 1.18,
+        distortionAmount: 0.35,
+        chromaticAberration: 0.015,
+        duration: 1.1,
+        ease: 'power2.in',
+      });
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 1.7,
+          ease: 'power2.inOut',
+        },
+        '-=0.5'
+      );
+      tl.to(
+        this.values,
+        {
+          cameraOffsetY: 0.0,
+          cameraOffsetX: 0.0,
+          cameraZoom: 1.0,
+          distortionAmount: 0.01,
+          chromaticAberration: 0.002,
+          duration: 1.3,
+          ease: 'power3.out',
+        },
+        '-=0.7'
+      );
+    } else {
+      // Deep: accelerate downward into darkness
+      tl.to(this.values, {
+        cameraOffsetY: -0.16, // sink downwards
         cameraZoom: 1.2,
         distortionAmount: 0.4,
         chromaticAberration: 0.018,
-        duration: 1.2,
+        duration: 1.1,
         ease: 'power2.in',
       });
       tl.to(
         this.values,
         {
           transitionProgress: 1.0,
-          duration: 1.8,
+          duration: 1.7,
           ease: 'power2.inOut',
         },
-        '-=0.6'
-      );
-      tl.to(
-        this.values,
-        {
-          cameraOffsetX: 0.0,
-          cameraZoom: 1.0,
-          distortionAmount: 0.02,
-          chromaticAberration: 0.002,
-          duration: 1.4,
-          ease: 'power3.out',
-        },
-        '-=0.8'
-      );
-    } else {
-      // Deep: sink downward into the darkness
-      tl.to(this.values, {
-        cameraOffsetY: -0.18,
-        cameraZoom: 1.25,
-        distortionAmount: 0.5,
-        chromaticAberration: 0.022,
-        duration: 1.2,
-        ease: 'power2.in',
-      });
-      tl.to(
-        this.values,
-        {
-          transitionProgress: 1.0,
-          duration: 1.8,
-          ease: 'power2.inOut',
-        },
-        '-=0.6'
+        '-=0.5'
       );
       tl.to(
         this.values,
         {
           cameraOffsetY: 0.0,
           cameraZoom: 1.0,
-          distortionAmount: 0.03,
+          distortionAmount: 0.01,
           chromaticAberration: 0.002,
-          duration: 1.4,
+          duration: 1.3,
           ease: 'power3.out',
         },
-        '-=0.8'
+        '-=0.7'
       );
     }
 
@@ -314,6 +356,8 @@ export class CameraController {
     this.values.transitionProgress = 0;
     this.values.choiceHoverBiasX = 0;
     this.values.choiceHoverBiasY = 0;
+
+    this.renderer.getMediaManager().play('ocean');
   }
 
   public destroy(): void {

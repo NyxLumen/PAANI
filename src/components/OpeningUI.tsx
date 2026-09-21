@@ -14,45 +14,35 @@ export const OpeningUI: React.FC<OpeningUIProps> = ({ onStart, isVisible }) => {
   const startRef = useRef<HTMLDivElement>(null);
 
   const handleStart = () => {
-    // 1. START disappears immediately or quick fade
-    // 2. Title and subtitle recede and fade
-    const tl = gsap.timeline({
-      onComplete: () => {
-        onStart();
-      },
-    });
+    // 0.0s: Trigger camera timeline immediately
+    onStart();
 
-    tl.to(startRef.current, {
+    // 0.0s: START begins disappearing
+    gsap.to(startRef.current, {
       opacity: 0,
-      scale: 0.9,
-      duration: 0.45,
+      scale: 0.88,
+      duration: 0.28,
       ease: 'power2.in',
     });
 
-    tl.to(
-      titleRef.current,
-      {
-        y: -35,
-        opacity: 0,
-        scale: 0.92,
-        filter: 'blur(6px)',
-        duration: 1.3,
-        ease: 'power2.in',
-      },
-      '-=0.2'
-    );
+    // 0.0–0.8s: PĀNI recedes and fades
+    gsap.to(titleRef.current, {
+      y: -28,
+      opacity: 0,
+      scale: 0.94,
+      filter: 'blur(6px)',
+      duration: 0.8,
+      ease: 'power2.in',
+    });
 
-    tl.to(
-      subtitleRef.current,
-      {
-        y: -20,
-        opacity: 0,
-        filter: 'blur(4px)',
-        duration: 1.0,
-        ease: 'power2.in',
-      },
-      '-=1.1'
-    );
+    gsap.to(subtitleRef.current, {
+      y: -14,
+      opacity: 0,
+      filter: 'blur(4px)',
+      duration: 0.7,
+      delay: 0.05,
+      ease: 'power2.in',
+    });
   };
 
   if (!isVisible) return null;
