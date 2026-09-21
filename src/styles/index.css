@@ -329,6 +329,15 @@ html, body {
   color: #eaf3fb;
 }
 
+.debug-item.span-2 {
+  grid-column: span 2;
+}
+
+.debug-value.small-text {
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+
 .debug-value.good {
   color: #55efc4;
 }

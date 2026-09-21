@@ -6,9 +6,17 @@ varying float vCrest;
 varying float vDepth;
 
 uniform float uTime;
-uniform vec3 uImpactOrigin;
-uniform float uImpactTime;
-uniform float uImpactIntensity;
+
+// Multi-slot analytical ripples
+#define MAX_RIPPLES 4
+uniform vec3 uRippleOrigins[MAX_RIPPLES];
+uniform float uRippleTimes[MAX_RIPPLES];
+uniform float uRippleEnergies[MAX_RIPPLES];
+uniform vec3 uRippleVelocities[MAX_RIPPLES];
+
+// Meniscus contact bulge
+uniform vec3 uMeniscusOrigin;
+uniform float uMeniscusWeight;
 
 struct Wave {
   vec2 direction;
@@ -35,6 +43,7 @@ void main() {
   vec3 binormal = vec3(0.0, 0.0, 1.0);
   float crestAccum = 0.0;
 
+  // 1. Gerstner Waves
   for (int i = 0; i < NUM_WAVES; i++) {
     float k = 6.2831853 / waves[i].wavelength;
     float c = sqrt(9.8 / k) * waves[i].speed;
@@ -65,25 +74,65 @@ void main() {
     );
   }
 
-  // Dynamic Impact Ripple
-  if (uImpactTime > 0.0 && uImpactTime < 8.0) {
-    float dist = length(p.xz - uImpactOrigin.xz);
-    float rippleSpeed = 4.2;
-    float waveFront = uImpactTime * rippleSpeed;
-    float dWave = dist - waveFront;
-    
-    float ringWidth = 1.2 + uImpactTime * 0.6;
-    float envelope = exp(-pow(dWave / ringWidth, 2.0)) * exp(-uImpactTime * 0.7);
-    float spatialDamping = 1.0 / (1.0 + dist * 0.4);
-    
-    float ripple = sin(dist * 7.0 - uImpactTime * 14.0) * envelope * uImpactIntensity * spatialDamping;
-    displaced.y += ripple;
+  // 2. Analytical Multi-Band Impact Ripples with Anisotropy & Frequency Dispersion
+  for (int r = 0; r < MAX_RIPPLES; r++) {
+    float rTime = uRippleTimes[r];
+    if (rTime > 0.0 && rTime < 8.5) {
+      vec3 origin = uRippleOrigins[r];
+      vec2 deltaPos = p.xz - origin.xz;
+      float dist = length(deltaPos);
 
-    if (dist > 0.01) {
-      vec2 rDir = normalize(p.xz - uImpactOrigin.xz);
-      float dRipple_dDist = (cos(dist * 7.0 - uImpactTime * 14.0) * 7.0) * envelope * uImpactIntensity * spatialDamping;
-      tangent.y += rDir.x * dRipple_dDist;
-      binormal.y += rDir.y * dRipple_dDist;
+      if (dist > 0.001) {
+        vec2 rDir = deltaPos / dist;
+        vec2 vDir = normalize(uRippleVelocities[r].xz + vec2(0.001, 0.0));
+        float align = dot(rDir, vDir);
+
+        // Slight anisotropic forward stretching in the direction of impact velocity
+        float distEff = dist - align * (rTime * 0.4);
+
+        // Multi-frequency dispersion:
+        // Band 1: Gravity wave (longer wavelength, higher group speed)
+        float waveFront1 = rTime * 4.4;
+        float dWave1 = distEff - waveFront1;
+        float env1 = exp(-pow(dWave1 / (1.4 + rTime * 0.7), 2.0));
+        float ripple1 = sin(distEff * 6.5 - rTime * 13.0) * env1;
+
+        // Band 2: Capillary wave (shorter wavelength, fine ripple texture)
+        float waveFront2 = rTime * 3.1;
+        float dWave2 = distEff - waveFront2;
+        float env2 = exp(-pow(dWave2 / (1.0 + rTime * 0.5), 2.0));
+        float ripple2 = sin(distEff * 16.0 - rTime * 22.0) * env2 * 0.45;
+
+        // Damping: quadratic distance attenuation + exponential time decay
+        float spatialDamping = 1.0 / (1.0 + dist * 0.5 + dist * dist * 0.08);
+        float timeDamping = exp(-rTime * 0.62);
+        float energy = uRippleEnergies[r];
+
+        float totalRipple = (ripple1 + ripple2) * spatialDamping * timeDamping * energy * 0.55;
+        displaced.y += totalRipple;
+
+        // Normal perturbation from ripples
+        float dR_dDist = (cos(distEff * 6.5 - rTime * 13.0) * 6.5 * env1 +
+                          cos(distEff * 16.0 - rTime * 22.0) * 16.0 * env2 * 0.45) *
+                          spatialDamping * timeDamping * energy * 0.55;
+        tangent.y += rDir.x * dR_dDist;
+        binormal.y += rDir.y * dR_dDist;
+      }
+    }
+  }
+
+  // 3. Meniscus Contact Bulge (Surface rises to bond with droplet upon contact)
+  if (uMeniscusWeight > 0.0) {
+    float mDist = length(p.xz - uMeniscusOrigin.xz);
+    float bulgeRadius = 0.42;
+    float bulge = exp(-pow(mDist / bulgeRadius, 2.0)) * uMeniscusWeight * 0.22;
+    displaced.y += bulge;
+
+    if (mDist > 0.001) {
+      vec2 mDir = normalize(p.xz - uMeniscusOrigin.xz);
+      float dBulge = -2.0 * (mDist / (bulgeRadius * bulgeRadius)) * bulge;
+      tangent.y += mDir.x * dBulge;
+      binormal.y += mDir.y * dBulge;
     }
   }
 
@@ -110,6 +159,12 @@ varying float vDepth;
 uniform float uTime;
 uniform vec3 uSunDirection;
 uniform vec3 uCameraPosition;
+
+// Transient Localized Foam System
+#define MAX_FOAM_SPOTS 4
+uniform vec3 uFoamOrigins[MAX_FOAM_SPOTS];
+uniform float uFoamTimes[MAX_FOAM_SPOTS];
+uniform float uFoamEnergies[MAX_FOAM_SPOTS];
 
 vec3 computeSky(vec3 rayDir, vec3 sunDir) {
   float cosTheta = dot(rayDir, sunDir);
@@ -160,31 +215,23 @@ void main() {
   float NdotV = max(dot(normal, viewDir), 0.0);
 
   // -------------------------------------------------------------
-  // 1. UNDERWATER VIEW (Looking up at the water surface from below)
+  // 1. UNDERWATER VIEW (Looking up at the surface from below)
   // -------------------------------------------------------------
   if (isUnderside) {
-    // Snell's Window & Total Internal Reflection (TIR)
-    // Critical angle: arcsin(1.0 / 1.333) = 48.6 deg. cos(48.6) = 0.66
     float cosCritical = 0.66;
     float tir = smoothstep(cosCritical, cosCritical + 0.15, NdotV);
 
-    // Light entering from the sky compressed into Snell's window
     vec3 refractRay = refract(-viewDir, normal, 1.333 / 1.0);
     vec3 skyLight = computeSky(refractRay, sunDir);
-    // Add sun rays penetrating down through the surface
     float sunTransmission = pow(max(dot(viewDir, sunDir), 0.0), 32.0) * 12.0;
     skyLight += vec3(1.0, 0.95, 0.8) * sunTransmission;
 
-    // Mirrored reflection of the deep water outside Snell's window
     vec3 deepWaterMirror = vec3(0.015, 0.08, 0.16);
-
     vec3 undersideColor = mix(deepWaterMirror, skyLight, tir);
 
-    // Subtle caustic wave pattern on the underside
     float causticWave = noise(vWorldPosition.xz * 0.8 + vec2(uTime * 0.4)) * 0.3;
     undersideColor += vec3(0.1, 0.35, 0.45) * causticWave;
 
-    // Depth fog for underwater view: fade smoothly into the oceanic abyss at distance
     float dist = length(vWorldPosition - uCameraPosition);
     float underFog = 1.0 - exp(-dist * 0.012);
     vec3 deepAbyss = vec3(0.004, 0.018, 0.045);
@@ -195,9 +242,9 @@ void main() {
   }
 
   // -------------------------------------------------------------
-  // 2. ABOVE-WATER VIEW (Standard Ocean Surface)
+  // 2. ABOVE-WATER VIEW
   // -------------------------------------------------------------
-  float R0 = 0.0204; // Water index of refraction n = 1.333
+  float R0 = 0.0204;
   float fresnel = R0 + (1.0 - R0) * pow(1.0 - NdotV, 5.0);
 
   vec3 reflectDir = reflect(-viewDir, normal);
@@ -211,25 +258,45 @@ void main() {
   float broadSpec = pow(NdotH, 24.0) * 0.45;
   vec3 sunSpecular = (specular + broadSpec) * vec3(1.0, 0.92, 0.75);
 
-  // Subsurface Water Body Color (Beer-Lambert depth absorption)
+  // Subsurface Water Body Color
   vec3 deepOceanColor = vec3(0.008, 0.045, 0.11);
   vec3 shallowWaterColor = vec3(0.02, 0.16, 0.25);
   vec3 waterBody = mix(deepOceanColor, shallowWaterColor, clamp((vDepth + 0.5) * 0.7, 0.0, 1.0));
 
-  // Subsurface scattering
   float sss = pow(clamp(dot(viewDir, -sunDir), 0.0, 1.0), 3.0) * clamp(vDepth * 1.5, 0.0, 1.0);
   waterBody += vec3(0.04, 0.35, 0.32) * sss * 0.8;
 
-  // Composite water body with surface Fresnel reflection
   vec3 surfaceColor = mix(waterBody, skyReflection, fresnel);
   surfaceColor += sunSpecular * fresnel;
 
-  // Subtle wave crest foam
+  // Wave crest foam
   float crestFoam = smoothstep(0.45, 0.75, vCrest * 0.3 + n2 * 0.2);
-  vec3 foamColor = vec3(0.85, 0.94, 0.98);
-  surfaceColor = mix(surfaceColor, foamColor, crestFoam * 0.45);
 
-  // Atmospheric distance fog / horizon haze fade
+  // Dynamic Localized Impact Foam
+  float impactFoamAccum = 0.0;
+  for (int f = 0; f < MAX_FOAM_SPOTS; f++) {
+    float fTime = uFoamTimes[f];
+    if (fTime > 0.0 && fTime < 5.5) {
+      vec3 fOrigin = uFoamOrigins[f];
+      float dist = length(vWorldPosition.xz - fOrigin.xz);
+      float ringRadius = 0.3 + fTime * 0.55;
+      float ringThickness = 0.28 + fTime * 0.18;
+
+      // Annular foam ring that stretches along wave noise
+      float ringDist = abs(dist - ringRadius);
+      float foamLace = noise(vWorldPosition.xz * 8.0 - vec2(uTime * 0.4)) * 0.5 + 0.5;
+      float ringMask = exp(-pow(ringDist / ringThickness, 2.0));
+      float decay = exp(-fTime * 0.85);
+
+      impactFoamAccum += ringMask * foamLace * decay * uFoamEnergies[f] * 1.2;
+    }
+  }
+
+  float totalFoam = clamp(crestFoam * 0.45 + impactFoamAccum, 0.0, 0.92);
+  vec3 foamColor = vec3(0.88, 0.95, 0.99);
+  surfaceColor = mix(surfaceColor, foamColor, totalFoam);
+
+  // Atmospheric distance fog
   float dist = length(vWorldPosition - uCameraPosition);
   float fogFactor = 1.0 - exp(-dist * 0.0025);
   vec3 horizonHaze = vec3(0.58, 0.74, 0.88);

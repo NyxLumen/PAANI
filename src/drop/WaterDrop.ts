@@ -14,7 +14,6 @@ export class WaterDrop {
   private dummy = new THREE.Object3D();
 
   constructor(sunDirection: THREE.Vector3) {
-    // Ultra-smooth sphere for flawless fluid silhouette and vertex deformation
     const geometry = new THREE.SphereGeometry(this.radius, 96, 64);
 
     this.material = new THREE.ShaderMaterial({
@@ -28,6 +27,9 @@ export class WaterDrop {
         uVelocity: { value: new THREE.Vector3(0, 0, 0) },
         uImpactSquash: { value: 0.0 },
         uSubmerged: { value: 0.0 },
+        uSurfaceNormal: { value: new THREE.Vector3(0, 1, 0) },
+        uMergeProgress: { value: 0.0 },
+        uWaterHeight: { value: 0.0 },
       },
       transparent: true,
       depthWrite: true,
@@ -36,7 +38,6 @@ export class WaterDrop {
 
     this.mesh = new THREE.Mesh(geometry, this.material);
 
-    // Micro-bubble trail
     this.bubbleGroup = new THREE.Group();
     const bGeom = new THREE.SphereGeometry(0.024, 8, 8);
     const bMat = new THREE.MeshBasicMaterial({
@@ -81,6 +82,18 @@ export class WaterDrop {
     this.material.uniforms.uSubmerged.value = submerged;
   }
 
+  public setSurfaceNormal(normal: THREE.Vector3) {
+    this.material.uniforms.uSurfaceNormal.value.copy(normal);
+  }
+
+  public setMergeProgress(progress: number) {
+    this.material.uniforms.uMergeProgress.value = progress;
+  }
+
+  public setWaterHeight(height: number) {
+    this.material.uniforms.uWaterHeight.value = height;
+  }
+
   public emitBubble(pos: THREE.Vector3) {
     if (this.bubbles.length < this.maxBubbles) {
       this.bubbles.push({
@@ -91,7 +104,7 @@ export class WaterDrop {
         )),
         vel: new THREE.Vector3(
           (Math.random() - 0.5) * 0.1,
-          0.4 + Math.random() * 0.6, // Bubbles float up
+          0.4 + Math.random() * 0.6,
           (Math.random() - 0.5) * 0.1
         ),
         life: 0,
@@ -105,7 +118,6 @@ export class WaterDrop {
     this.material.uniforms.uTime.value = time;
     this.material.uniforms.uCameraPosition.value.copy(cameraPos);
 
-    // Update trailing bubbles
     for (let i = this.bubbles.length - 1; i >= 0; i--) {
       const b = this.bubbles[i];
       b.life += delta;
@@ -113,7 +125,7 @@ export class WaterDrop {
         this.bubbles.splice(i, 1);
       } else {
         b.pos.addScaledVector(b.vel, delta);
-        b.vel.y += 0.5 * delta; // Upward buoyancy
+        b.vel.y += 0.5 * delta;
       }
     }
 

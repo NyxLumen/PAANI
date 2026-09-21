@@ -1,7 +1,7 @@
-import * as THREE from 'three';
 import { DropCamera } from '../drop/DropCamera';
 import { DropPhysics } from '../drop/DropPhysics';
-import { Splash } from '../world/Splash';
+import { WaterInteraction } from '../water/WaterInteraction';
+import { ImpactEvent } from '../water/ImpactEvent';
 
 export type StoryPhase = 'OPENING' | 'REVEAL' | 'DESCENT' | 'IMPACT' | 'UNDERWATER';
 
@@ -14,19 +14,19 @@ export class StoryDirector {
   public phase: StoryPhase = 'OPENING';
   private camera: DropCamera;
   private physics: DropPhysics;
-  private splash: Splash;
+  private interaction: WaterInteraction;
   private callbacks: StoryCallbacks;
   private timer: number = 0;
 
   constructor(
     camera: DropCamera,
     physics: DropPhysics,
-    splash: Splash,
+    interaction: WaterInteraction,
     callbacks: StoryCallbacks = {}
   ) {
     this.camera = camera;
     this.physics = physics;
-    this.splash = splash;
+    this.interaction = interaction;
     this.callbacks = callbacks;
   }
 
@@ -48,13 +48,14 @@ export class StoryDirector {
     this.timer = 0;
     this.physics.reset();
     this.camera.reset();
+    this.interaction.reset();
     this.emitPhase('OPENING');
     this.emitCaption(null);
   }
 
-  public handleImpact(position: THREE.Vector3) {
+  public handleImpact(event: ImpactEvent) {
     this.setPhase('IMPACT');
-    this.splash.trigger(position);
+    this.interaction.dispatchImpact(event);
     this.emitCaption('The boundary dissolves.');
   }
 
@@ -69,7 +70,6 @@ export class StoryDirector {
     this.timer += delta;
 
     if (this.phase === 'REVEAL') {
-      // After camera completes the reveal framing (~3.2s), trigger the fall
       if (this.timer > 3.2) {
         this.setPhase('DESCENT');
         this.physics.startFall();

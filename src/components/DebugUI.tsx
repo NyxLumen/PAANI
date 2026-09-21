@@ -10,6 +10,15 @@ interface DebugStats {
   triangles: number;
   dropY: string;
   isUnderwater: boolean;
+
+  // Phase 5 Water Interaction Telemetry
+  impactEnergy?: string;
+  impactSpeed?: string;
+  surfaceNormal?: string;
+  activeRipples?: number;
+  activeMicroDroplets?: number;
+  activeMesoLobes?: number;
+  activeBubbles?: number;
 }
 
 interface DebugUIProps {
@@ -25,7 +34,7 @@ export const DebugUI: React.FC<DebugUIProps> = ({ stats, isVisible, onClose, onS
   return (
     <aside className="debug-telemetry-panel" aria-label="Engine Performance Telemetry">
       <div className="debug-header">
-        <span className="debug-title">ENGINE TELEMETRY</span>
+        <span className="debug-title">ENGINE & WATER TELEMETRY</span>
         <button className="debug-close-btn" onClick={onClose}>×</button>
       </div>
 
@@ -61,6 +70,36 @@ export const DebugUI: React.FC<DebugUIProps> = ({ stats, isVisible, onClose, onS
         <div className="debug-item">
           <span className="debug-label">Medium</span>
           <span className="debug-value">{stats.isUnderwater ? 'UNDERWATER' : 'AIR'}</span>
+        </div>
+
+        {/* Phase 5 Interaction Metrics */}
+        <div className="debug-item">
+          <span className="debug-label">Impact Energy</span>
+          <span className="debug-value highlight">{stats.impactEnergy ?? '0.00'}</span>
+        </div>
+        <div className="debug-item">
+          <span className="debug-label">Normal Speed</span>
+          <span className="debug-value">{stats.impactSpeed ? `${stats.impactSpeed} m/s` : '0.0 m/s'}</span>
+        </div>
+        <div className="debug-item span-2">
+          <span className="debug-label">Surface Normal</span>
+          <span className="debug-value small-text">{stats.surfaceNormal ?? '(0, 1, 0)'}</span>
+        </div>
+        <div className="debug-item">
+          <span className="debug-label">Active Ripples</span>
+          <span className="debug-value">{stats.activeRipples ?? 0}</span>
+        </div>
+        <div className="debug-item">
+          <span className="debug-label">Micro Droplets</span>
+          <span className="debug-value">{stats.activeMicroDroplets ?? 0}</span>
+        </div>
+        <div className="debug-item">
+          <span className="debug-label">Meso Lobes</span>
+          <span className="debug-value">{stats.activeMesoLobes ?? 0}</span>
+        </div>
+        <div className="debug-item">
+          <span className="debug-label">Active Bubbles</span>
+          <span className="debug-value">{stats.activeBubbles ?? 0}</span>
         </div>
       </div>
 

@@ -4,8 +4,8 @@ import { QualityManager, QualityTier } from './QualityManager';
 import { Renderer } from './Renderer';
 import { Sky } from '../world/Sky';
 import { Ocean } from '../world/Ocean';
-import { Splash } from '../world/Splash';
 import { Underwater } from '../world/Underwater';
+import { WaterInteraction } from '../water/WaterInteraction';
 import { WaterDrop } from '../drop/WaterDrop';
 import { DropPhysics } from '../drop/DropPhysics';
 import { DropCamera } from '../drop/DropCamera';
@@ -26,8 +26,8 @@ export class Experience {
   // World elements
   public sky: Sky;
   public ocean: Ocean;
-  public splash: Splash;
   public underwater: Underwater;
+  public interaction: WaterInteraction;
 
   // Droplet and camera
   public drop: WaterDrop;
@@ -71,16 +71,17 @@ export class Experience {
     this.ocean = new Ocean(sunDir, this.qualityManager);
     this.scene.add(this.ocean.mesh);
 
-    this.splash = new Splash();
-    this.scene.add(this.splash.group);
-
     this.underwater = new Underwater(sunDir, this.qualityManager);
     this.scene.add(this.underwater.group);
+
+    // 4. Advanced Water Interaction Subsystem (Phase 5)
+    this.interaction = new WaterInteraction(sunDir, this.qualityManager);
+    this.scene.add(this.interaction.group);
 
     // Initial above-water atmospheric fog
     this.scene.fog = this.underwater.aboveWaterFog;
 
-    // 4. Droplet & Camera
+    // 5. Droplet & Camera
     this.drop = new WaterDrop(sunDir);
     this.scene.add(this.drop.mesh);
     this.scene.add(this.drop.bubbleGroup);
@@ -88,13 +89,14 @@ export class Experience {
     const aspect = this.renderer.width / this.renderer.height;
     this.camera = new DropCamera(this.ocean, aspect);
 
-    // 5. Physics & Story Orchestration
+    // 6. Physics & Story Orchestration
     this.physics = new DropPhysics(this.drop, this.ocean, {
-      onImpact: (pos) => this.story.handleImpact(pos),
+      onImpact: (event) => this.story.handleImpact(event),
       onSubmerged: () => this.story.handleSubmerged(),
+      onTrailingBubble: (pos, vel) => this.interaction.emitTrailingBubble(pos, vel),
     });
 
-    this.story = new StoryDirector(this.camera, this.physics, this.splash, {
+    this.story = new StoryDirector(this.camera, this.physics, this.interaction, {
       onPhaseChange: (phase) => {
         if (this.callbacks.onPhaseChange) this.callbacks.onPhaseChange(phase);
       },
@@ -104,6 +106,7 @@ export class Experience {
     });
 
     window.addEventListener('resize', this.handleResize);
+    (window as any).__PAANI_EXPERIENCE__ = this;
   }
 
   private handleResize = () => {
@@ -141,6 +144,8 @@ export class Experience {
 
   public getStats() {
     const renderStats = this.renderer.getStats();
+    const telemetry = this.interaction.getTelemetry();
+
     return {
       fps: this.qualityManager.fps,
       frameTimeMs: this.qualityManager.frameTimeMs.toFixed(1),
@@ -150,6 +155,15 @@ export class Experience {
       triangles: renderStats.triangles,
       dropY: this.drop.getPosition().y.toFixed(2),
       isUnderwater: this.camera.isUnderwater,
+
+      // Phase 5 Interaction Telemetry
+      impactEnergy: telemetry.lastImpactEnergy.toFixed(2),
+      impactSpeed: telemetry.lastImpactSpeed.toFixed(1),
+      surfaceNormal: `(${telemetry.lastSurfaceNormal.x.toFixed(2)}, ${telemetry.lastSurfaceNormal.y.toFixed(2)}, ${telemetry.lastSurfaceNormal.z.toFixed(2)})`,
+      activeRipples: telemetry.activeRipples,
+      activeMicroDroplets: telemetry.activeMicroDroplets,
+      activeMesoLobes: telemetry.activeMesoLobes,
+      activeBubbles: telemetry.activeBubbles,
     };
   }
 
@@ -164,19 +178,22 @@ export class Experience {
     this.physics.update(delta, time);
     this.story.update(delta);
 
-    // 2. Update Droplet Optics
+    // 2. Update Water Interaction Subsystem
+    this.interaction.update(delta, time, this.camera.instance.position);
+    this.ocean.syncInteraction(this.interaction.ripples, this.interaction.foam);
+
+    // 3. Update Droplet Optics
     this.drop.update(time, this.camera.instance.position, delta);
 
-    // 3. Update Camera Follow
+    // 4. Update Camera Follow
     this.camera.update(delta, time, this.drop.getPosition(), this.physics.state);
 
-    // 4. Update Ocean & World Systems
-    this.ocean.update(time, this.camera.instance.position, delta);
+    // 5. Update Ocean & World Systems
+    this.ocean.update(time, this.camera.instance.position);
     this.sky.update(time);
-    this.splash.update(delta);
     this.underwater.update(time, delta, this.camera.isUnderwater, this.camera.instance.position);
 
-    // 5. Dynamic Fog Transition (Atmosphere vs Underwater)
+    // 6. Dynamic Fog Transition
     if (this.camera.isUnderwater) {
       this.scene.fog = this.underwater.underwaterFog;
       this.ambientLight.color.setHex(0x0a4060);
@@ -187,10 +204,10 @@ export class Experience {
       this.ambientLight.intensity = 0.65;
     }
 
-    // 6. Render Frame
+    // 7. Render Frame
     this.renderer.render(this.scene, this.camera.instance);
 
-    // 7. Measure & Report Performance
+    // 8. Measure Performance
     const frameDuration = performance.now() - frameStart;
     this.qualityManager.reportFrameTime(frameDuration);
 
@@ -203,7 +220,7 @@ export class Experience {
 
     this.sky.destroy();
     this.ocean.destroy();
-    this.splash.destroy();
+    this.interaction.destroy();
     this.underwater.destroy();
     this.drop.destroy();
     this.renderer.destroy();
