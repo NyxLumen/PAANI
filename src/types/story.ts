@@ -17,6 +17,15 @@ export type EnvironmentId =
   | 'clouds'
   | 'rain';
 
+export type TransitionRecipe =
+  | 'none'
+  | 'surface-dive'
+  | 'evaporation'
+  | 'atmospheric'
+  | 'rainfall'
+  | 'ocean-return'
+  | 'deep-descent';
+
 export interface EnvironmentAsset {
   video: string;
   image: string;

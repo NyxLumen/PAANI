@@ -1,4 +1,4 @@
-import { EnvironmentId } from '../types/story';
+import { EnvironmentId, TransitionRecipe } from '../types/story';
 import { MediaManager } from './MediaManager';
 import { quadVertexShader } from './shaders/quad.vert';
 import { waterFragmentShader } from './shaders/water.frag';
@@ -7,7 +7,7 @@ export interface RenderState {
   environmentA: EnvironmentId;
   environmentB: EnvironmentId;
   transitionProgress: number; // 0.0 to 1.0
-  transitionType: number;     // 0 = dive, 1 = shore, 2 = deep
+  transitionRecipe: TransitionRecipe;
   cameraOffset: { x: number; y: number };
   cameraZoom: number;
   cameraTilt: number;
@@ -32,7 +32,7 @@ export class WebGLRenderer {
   private uRatioALoc: WebGLUniformLocation | null = null;
   private uRatioBLoc: WebGLUniformLocation | null = null;
   private uTransitionProgressLoc: WebGLUniformLocation | null = null;
-  private uTransitionTypeLoc: WebGLUniformLocation | null = null;
+  private uTransitionRecipeLoc: WebGLUniformLocation | null = null;
   private uCameraOffsetLoc: WebGLUniformLocation | null = null;
   private uCameraZoomLoc: WebGLUniformLocation | null = null;
   private uCameraTiltLoc: WebGLUniformLocation | null = null;
@@ -56,12 +56,12 @@ export class WebGLRenderer {
     environmentA: 'ocean',
     environmentB: 'underwater',
     transitionProgress: 0.0,
-    transitionType: 0,
+    transitionRecipe: 'none',
     cameraOffset: { x: 0, y: 0 },
     cameraZoom: 1.0,
     cameraTilt: 0,
     distortionAmount: 0.0,
-    chromaticAberration: 0.002,
+    chromaticAberration: 0.0012,
     choiceHoverBias: { x: 0, y: 0 },
   };
 
@@ -80,23 +80,14 @@ export class WebGLRenderer {
     }
     this.gl = gl;
 
-    // Create shaders & program
     this.program = this.createProgram(quadVertexShader, waterFragmentShader);
     gl.useProgram(this.program);
 
-    // Setup fullscreen quad
     this.setupQuadGeometry();
-
-    // Cache uniform locations
     this.cacheUniforms();
 
-    // Media Manager
     this.mediaManager = new MediaManager(gl);
-
-    // Bind mouse listeners
     this.bindEvents();
-
-    // Resize
     this.resize();
   }
 
@@ -158,7 +149,7 @@ export class WebGLRenderer {
     this.uRatioALoc = gl.getUniformLocation(p, 'u_ratio_a');
     this.uRatioBLoc = gl.getUniformLocation(p, 'u_ratio_b');
     this.uTransitionProgressLoc = gl.getUniformLocation(p, 'u_transition_progress');
-    this.uTransitionTypeLoc = gl.getUniformLocation(p, 'u_transition_type');
+    this.uTransitionRecipeLoc = gl.getUniformLocation(p, 'u_transition_recipe');
     this.uCameraOffsetLoc = gl.getUniformLocation(p, 'u_camera_offset');
     this.uCameraZoomLoc = gl.getUniformLocation(p, 'u_camera_zoom');
     this.uCameraTiltLoc = gl.getUniformLocation(p, 'u_camera_tilt');
@@ -175,7 +166,6 @@ export class WebGLRenderer {
     const onMouseMove = (e: MouseEvent) => {
       const rect = this.canvas.getBoundingClientRect();
       const nx = (e.clientX - rect.left) / rect.width;
-      // Invert Y for GL coordinates: y=0 at bottom, y=1 at top
       const ny = 1.0 - (e.clientY - rect.top) / rect.height;
 
       const vx = nx - this.targetMouse.x;
@@ -185,7 +175,7 @@ export class WebGLRenderer {
 
       this.targetMouse.x = nx;
       this.targetMouse.y = ny;
-      this.targetRipple = Math.min(1.0, Math.sqrt(vx * vx + vy * vy) * 35.0);
+      this.targetRipple = Math.min(1.0, Math.sqrt(vx * vx + vy * vy) * 30.0);
     };
 
     window.addEventListener('mousemove', onMouseMove, { passive: true });
@@ -233,13 +223,13 @@ export class WebGLRenderer {
     const gl = this.gl;
     const time = (performance.now() - this.startTime) * 0.001;
 
-    // Smooth mouse lerping for physical fluid feel
+    // Smooth mouse lerping
     this.mouse.x += (this.targetMouse.x - this.mouse.x) * 0.08;
     this.mouse.y += (this.targetMouse.y - this.mouse.y) * 0.08;
     this.rippleIntensity += (this.targetRipple - this.rippleIntensity) * 0.06;
-    this.targetRipple *= 0.95; // decay
+    this.targetRipple *= 0.95;
 
-    // Update active video frames if playing
+    // Update active video frames
     this.mediaManager.updateFrame(this.state.environmentA);
     if (this.state.transitionProgress > 0.0) {
       this.mediaManager.updateFrame(this.state.environmentB);
@@ -247,7 +237,6 @@ export class WebGLRenderer {
 
     gl.useProgram(this.program);
 
-    // Uniforms
     gl.uniform2f(this.uResolutionLoc, this.canvas.width, this.canvas.height);
     gl.uniform1f(this.uTimeLoc, time);
 
@@ -262,9 +251,20 @@ export class WebGLRenderer {
     gl.uniform1i(this.uTexBLoc, 1);
     gl.uniform1f(this.uRatioBLoc, this.mediaManager.getAspectRatio(this.state.environmentB));
 
-    // Transition
+    // Transition progress & recipe
     gl.uniform1f(this.uTransitionProgressLoc, this.state.transitionProgress);
-    gl.uniform1i(this.uTransitionTypeLoc, this.state.transitionType);
+    
+    let recipeInt = 0;
+    switch (this.state.transitionRecipe) {
+      case 'surface-dive': recipeInt = 1; break;
+      case 'evaporation': recipeInt = 2; break;
+      case 'atmospheric': recipeInt = 3; break;
+      case 'rainfall': recipeInt = 4; break;
+      case 'ocean-return': recipeInt = 5; break;
+      case 'deep-descent': recipeInt = 6; break;
+      default: recipeInt = 0;
+    }
+    gl.uniform1i(this.uTransitionRecipeLoc, recipeInt);
 
     // Camera
     gl.uniform2f(this.uCameraOffsetLoc, this.state.cameraOffset.x, this.state.cameraOffset.y);
@@ -279,7 +279,7 @@ export class WebGLRenderer {
     gl.uniform1f(this.uCursorRippleIntensityLoc, this.rippleIntensity);
     gl.uniform2f(this.uChoiceHoverBiasLoc, this.state.choiceHoverBias.x, this.state.choiceHoverBias.y);
 
-    // Environment mode (0 = ocean, 1 = underwater, 2 = shore, 3 = deep, 4 = cloudAscent, 5 = clouds, 6 = rain)
+    // Environment mode
     let mode = 0;
     if (this.state.environmentA === 'ocean') mode = 0;
     else if (this.state.environmentA === 'underwater') mode = 1;
@@ -290,7 +290,6 @@ export class WebGLRenderer {
     else if (this.state.environmentA === 'rain') mode = 6;
     gl.uniform1i(this.uEnvironmentModeLoc, mode);
 
-    // Draw
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
