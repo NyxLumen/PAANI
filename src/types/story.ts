@@ -1,11 +1,26 @@
-export type SceneId = 'ocean' | 'underwater' | 'choice' | 'shore' | 'deep';
+export type SceneId =
+  | 'ocean'
+  | 'underwater'
+  | 'choice'
+  | 'shore'
+  | 'deep'
+  | 'cloudAscent'
+  | 'clouds'
+  | 'rain';
 
-export type EnvironmentId = 'ocean' | 'underwater' | 'shore' | 'deep';
+export type EnvironmentId =
+  | 'ocean'
+  | 'underwater'
+  | 'shore'
+  | 'deep'
+  | 'cloudAscent'
+  | 'clouds'
+  | 'rain';
 
 export interface EnvironmentAsset {
   video: string;
   image: string;
-  aspectRatio?: number; // e.g. 16/9
+  aspectRatio?: number;
 }
 
 export interface SceneChoice {
@@ -20,7 +35,7 @@ export interface SceneConfig {
   environment: EnvironmentId;
   narrative?: {
     text: string;
-    holdDuration: number; // in seconds
+    holdDuration: number;
   };
   choices?: SceneChoice[];
 }

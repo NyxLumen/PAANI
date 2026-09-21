@@ -339,6 +339,241 @@ export class CameraController {
     return tl;
   }
 
+  public executeAscent(onComplete?: () => void): gsap.core.Timeline {
+    this.isTransitioning = true;
+    this.renderer.setState({
+      environmentA: 'shore',
+      environmentB: 'cloudAscent',
+      transitionType: 3,
+      transitionProgress: 0.0,
+    });
+    this.values.transitionType = 3;
+    this.values.transitionProgress = 0.0;
+    this.renderer.getMediaManager().play('cloudAscent');
+
+    const tl = gsap.timeline({
+      onComplete: () => {
+        this.isTransitioning = false;
+        this.renderer.setState({
+          environmentA: 'cloudAscent',
+          environmentB: 'cloudAscent',
+          transitionProgress: 0.0,
+        });
+        this.values.transitionProgress = 0.0;
+        this.values.cameraOffsetY = 0.0;
+        this.values.cameraZoom = 1.0;
+        this.values.distortionAmount = 0.0;
+        this.values.chromaticAberration = 0.002;
+        onComplete?.();
+      },
+    });
+
+    tl.to(this.values, {
+      cameraOffsetY: 0.15,
+      cameraZoom: 1.15,
+      distortionAmount: 0.28,
+      chromaticAberration: 0.012,
+      duration: 1.2,
+      ease: 'power2.in',
+    });
+    tl.to(
+      this.values,
+      {
+        transitionProgress: 1.0,
+        duration: 1.8,
+        ease: 'power2.inOut',
+      },
+      '-=0.5'
+    );
+    tl.to(
+      this.values,
+      {
+        cameraOffsetY: 0.0,
+        cameraZoom: 1.0,
+        distortionAmount: 0.01,
+        chromaticAberration: 0.002,
+        duration: 1.4,
+        ease: 'power3.out',
+      },
+      '-=0.7'
+    );
+
+    return tl;
+  }
+
+  public executeClouds(onComplete?: () => void): gsap.core.Timeline {
+    this.isTransitioning = true;
+    this.renderer.setState({
+      environmentA: 'cloudAscent',
+      environmentB: 'clouds',
+      transitionType: 4,
+      transitionProgress: 0.0,
+    });
+    this.values.transitionType = 4;
+    this.values.transitionProgress = 0.0;
+    this.renderer.getMediaManager().play('clouds');
+
+    const tl = gsap.timeline({
+      onComplete: () => {
+        this.isTransitioning = false;
+        this.renderer.setState({
+          environmentA: 'clouds',
+          environmentB: 'clouds',
+          transitionProgress: 0.0,
+        });
+        this.values.transitionProgress = 0.0;
+        this.values.cameraOffsetY = 0.0;
+        this.values.cameraZoom = 1.0;
+        this.values.distortionAmount = 0.0;
+        this.values.chromaticAberration = 0.002;
+        onComplete?.();
+      },
+    });
+
+    tl.to(this.values, {
+      cameraZoom: 1.12,
+      distortionAmount: 0.22,
+      duration: 1.0,
+      ease: 'power2.in',
+    });
+    tl.to(
+      this.values,
+      {
+        transitionProgress: 1.0,
+        duration: 1.8,
+        ease: 'power2.inOut',
+      },
+      '-=0.4'
+    );
+    tl.to(
+      this.values,
+      {
+        cameraZoom: 1.0,
+        distortionAmount: 0.01,
+        duration: 1.4,
+        ease: 'power3.out',
+      },
+      '-=0.7'
+    );
+
+    return tl;
+  }
+
+  public executeRain(onComplete?: () => void): gsap.core.Timeline {
+    this.isTransitioning = true;
+    this.renderer.setState({
+      environmentA: 'clouds',
+      environmentB: 'rain',
+      transitionType: 4,
+      transitionProgress: 0.0,
+    });
+    this.values.transitionType = 4;
+    this.values.transitionProgress = 0.0;
+    this.renderer.getMediaManager().play('rain');
+
+    const tl = gsap.timeline({
+      onComplete: () => {
+        this.isTransitioning = false;
+        this.renderer.setState({
+          environmentA: 'rain',
+          environmentB: 'rain',
+          transitionProgress: 0.0,
+        });
+        this.values.transitionProgress = 0.0;
+        this.values.cameraOffsetY = 0.0;
+        this.values.cameraZoom = 1.0;
+        this.values.distortionAmount = 0.0;
+        this.values.chromaticAberration = 0.002;
+        onComplete?.();
+      },
+    });
+
+    tl.to(this.values, {
+      cameraOffsetY: -0.16,
+      cameraZoom: 1.22,
+      distortionAmount: 0.35,
+      chromaticAberration: 0.014,
+      duration: 1.2,
+      ease: 'power2.in',
+    });
+    tl.to(
+      this.values,
+      {
+        transitionProgress: 1.0,
+        duration: 1.8,
+        ease: 'power2.inOut',
+      },
+      '-=0.5'
+    );
+    tl.to(
+      this.values,
+      {
+        cameraOffsetY: 0.0,
+        cameraZoom: 1.0,
+        distortionAmount: 0.01,
+        chromaticAberration: 0.002,
+        duration: 1.4,
+        ease: 'power3.out',
+      },
+      '-=0.7'
+    );
+
+    return tl;
+  }
+
+  public executeRainToOcean(onComplete?: () => void): gsap.core.Timeline {
+    this.isTransitioning = true;
+    this.renderer.setState({
+      environmentA: 'rain',
+      environmentB: 'ocean',
+      transitionType: 5,
+      transitionProgress: 0.0,
+    });
+    this.values.transitionType = 5;
+    this.values.transitionProgress = 0.0;
+    this.renderer.getMediaManager().play('ocean');
+
+    const tl = gsap.timeline({
+      onComplete: () => {
+        this.isTransitioning = false;
+        this.resetToOcean();
+        onComplete?.();
+      },
+    });
+
+    tl.to(this.values, {
+      cameraOffsetY: -0.18,
+      cameraZoom: 1.32,
+      distortionAmount: 0.48,
+      chromaticAberration: 0.022,
+      duration: 1.4,
+      ease: 'power2.in',
+    });
+    tl.to(
+      this.values,
+      {
+        transitionProgress: 1.0,
+        duration: 1.8,
+        ease: 'power2.inOut',
+      },
+      '-=0.5'
+    );
+    tl.to(
+      this.values,
+      {
+        cameraOffsetY: 0.0,
+        cameraZoom: 1.0,
+        distortionAmount: 0.0,
+        chromaticAberration: 0.002,
+        duration: 1.5,
+        ease: 'power3.out',
+      },
+      '-=0.7'
+    );
+
+    return tl;
+  }
+
   public resetToOcean(): void {
     this.renderer.setState({
       environmentA: 'ocean',

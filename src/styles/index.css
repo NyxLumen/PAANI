@@ -378,3 +378,113 @@ html, body {
   transform: translateY(-2px);
   box-shadow: 0 0 24px rgba(130, 200, 255, 0.22);
 }
+
+/* --- Rise Button in Shore Destination --- */
+.destination-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.2rem;
+  pointer-events: auto;
+}
+
+.destination-rise-btn {
+  background: none;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.8rem 2rem;
+  transition: all 0.4s ease;
+}
+
+.destination-rise-btn .rise-indicator {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.4rem;
+  color: #c4e5ff;
+  transition: transform 0.4s ease;
+}
+
+.destination-rise-btn:hover .rise-indicator {
+  transform: translateY(-4px);
+  color: #ffffff;
+}
+
+.destination-rise-btn .rise-label {
+  font-family: 'Cinzel', serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-shadow: 0 0 16px rgba(180, 220, 255, 0.45);
+}
+
+/* --- Cycle Continuation UI --- */
+.cycle-ui-container {
+  position: absolute;
+  bottom: 8vh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.cycle-continuation-btn {
+  background: none;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: rgba(240, 248, 255, 0.8);
+  padding: 1rem 2rem;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cycle-continuation-btn:hover {
+  color: #ffffff;
+  transform: translateY(-3px);
+}
+
+.cycle-arrow {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.3rem;
+  color: #b0dcff;
+  transition: transform 0.3s ease;
+}
+
+.cycle-continuation-btn:hover .cycle-arrow {
+  transform: translateY(-3px);
+  color: #ffffff;
+}
+
+.cycle-action {
+  font-family: 'Cinzel', serif;
+  font-size: clamp(0.95rem, 1.4vw, 1.35rem);
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  margin-top: 0.2rem;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.8);
+}
+
+.cycle-sub {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+  margin-top: 0.15rem;
+  transition: opacity 0.3s ease;
+}
+
+.cycle-continuation-btn:hover .cycle-sub {
+  opacity: 0.9;
+  color: #d8eeff;
+}

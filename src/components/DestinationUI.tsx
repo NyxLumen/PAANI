@@ -4,9 +4,10 @@ import gsap from 'gsap';
 interface DestinationUIProps {
   sceneId: 'shore' | 'deep';
   onRestart: () => void;
+  onRise?: () => void;
 }
 
-export const DestinationUI: React.FC<DestinationUIProps> = ({ sceneId, onRestart }) => {
+export const DestinationUI: React.FC<DestinationUIProps> = ({ sceneId, onRestart, onRise }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -35,6 +36,13 @@ export const DestinationUI: React.FC<DestinationUIProps> = ({ sceneId, onRestart
         </p>
 
         <div className="destination-actions">
+          {isShore && onRise && (
+            <button onClick={onRise} className="destination-rise-btn" aria-label="Rise into clouds">
+              <span className="rise-indicator">↑</span>
+              <span className="rise-label">RISE</span>
+            </button>
+          )}
+
           <button onClick={onRestart} className="destination-restart-btn" aria-label="Loop Journey">
             <span className="restart-icon">↺</span>
             <span className="restart-label">begin anew</span>

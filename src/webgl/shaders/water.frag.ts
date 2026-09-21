@@ -14,7 +14,7 @@ uniform float u_ratio_b;
 
 // Transition
 uniform float u_transition_progress; // 0.0 to 1.0
-uniform int u_transition_type;       // 0 = dive, 1 = shore, 2 = deep
+uniform int u_transition_type;       // 0 = dive, 1 = shore, 2 = deep, 3 = ascent, 4 = cloud->rain, 5 = rain->ocean
 
 // Camera & Cinematography (GSAP controlled)
 uniform vec2 u_camera_offset;
@@ -30,7 +30,8 @@ uniform float u_cursor_ripple_intensity;
 uniform vec2 u_choice_hover_bias; // x: left/right [-1, 1], y: down/up [-1, 1]
 
 // Environment mode
-uniform int u_environment_mode; // 0 = ocean, 1 = underwater, 2 = shore, 3 = deep
+// 0 = ocean, 1 = underwater, 2 = shore, 3 = deep, 4 = cloudAscent, 5 = clouds, 6 = rain
+uniform int u_environment_mode;
 
 // --- Noise & Utility Functions ---
 float hash(vec2 p) {
@@ -101,8 +102,6 @@ void main() {
   vec2 rippleOffset = normalize(mouseDelta + 0.0001) * rippleWave * rippleAtten * 0.012;
 
   // 3. Environment Micro-Displacement
-  // NOTE: Because AI footage already provides realistic fluid motion,
-  // we use only micro-refractive optical depth to avoid synthetic look
   vec2 opticalDisplacement = vec2(0.0);
   
   if (u_environment_mode == 0) {
@@ -119,13 +118,25 @@ void main() {
     // Shore: gentle coastal wash refraction
     float s1 = sin(camUV.x * 8.0 + u_time * 0.9) * 0.0015;
     opticalDisplacement = vec2(s1, s1 * 0.6);
+  } else if (u_environment_mode == 4) {
+    // Cloud Ascent: gentle vertical updraft shimmering
+    float a1 = sin(camUV.y * 12.0 - u_time * 1.4) * 0.001;
+    opticalDisplacement = vec2(0.0, a1);
+  } else if (u_environment_mode == 5) {
+    // Clouds: volumetric slow atmospheric breathing
+    float cl1 = sin(camUV.x * 4.0 + u_time * 0.3) * 0.0008;
+    float cl2 = cos(camUV.y * 4.0 - u_time * 0.35) * 0.0008;
+    opticalDisplacement = vec2(cl1, cl2);
+  } else if (u_environment_mode == 6) {
+    // Rain: subtle downward rain streaks
+    float r1 = sin(camUV.x * 40.0 + u_time * 12.0) * 0.0006;
+    opticalDisplacement = vec2(r1, -0.0015);
   }
 
   // 4. Dive / Scene Transition Distortion (Controlled physical pass)
   vec2 transitionDistort = vec2(0.0);
   if (u_transition_progress > 0.0) {
     float p = u_transition_progress;
-    // Controlled peak at surface penetration
     float peakDistort = sin(p * 3.1415926) * u_distortion_amount;
     float swirlAngle = fbm(camUV * 6.0 + u_time * 2.0) * 6.28;
     transitionDistort = vec2(cos(swirlAngle), sin(swirlAngle)) * peakDistort * 0.045;
@@ -138,7 +149,7 @@ void main() {
   vec2 uvA = getCoverUV(distortedUV, u_resolution, u_ratio_a);
   vec2 uvB = getCoverUV(distortedUV, u_resolution, u_ratio_b);
 
-  // 5. Chromatic Aberration Sampling (Peaks during surface piercing)
+  // 5. Chromatic Aberration Sampling
   float ca = u_chromatic_aberration * (1.0 + length(screenUV - 0.5) * 1.1);
   vec2 caOffset = vec2(ca * 0.01, ca * 0.005);
 
@@ -163,7 +174,6 @@ void main() {
     
     if (u_transition_type == 0) {
       // Ocean -> Underwater Dive:
-      // Surface membrane pierces downward with liquid turbulence mask
       float noiseMask = fbm(distortedUV * 4.5 + vec2(0.0, u_time * 1.5));
       float verticalThreshold = 1.0 - p * 1.3 + noiseMask * 0.22;
       mask = smoothstep(verticalThreshold - 0.14, verticalThreshold + 0.14, distortedUV.y);
@@ -174,11 +184,29 @@ void main() {
       float riseThreshold = (1.0 - p * 1.25) + noiseMask * 0.18;
       mask = smoothstep(distortedUV.y - 0.15, distortedUV.y + 0.15, 1.0 - riseThreshold);
       mask = max(mask, smoothstep(0.75, 1.0, p));
-    } else {
+    } else if (u_transition_type == 2) {
       // Deep: Descent downward into the darkness
       float noiseMask = fbm(distortedUV * 3.0 - vec2(0.0, u_time * 1.0));
       float downThreshold = (1.0 - p * 1.25) + noiseMask * 0.18;
       mask = smoothstep(downThreshold + 0.15, downThreshold - 0.15, distortedUV.y);
+      mask = max(mask, smoothstep(0.75, 1.0, p));
+    } else if (u_transition_type == 3) {
+      // Shore -> Cloud Ascent: Thermal evaporation upward sweep
+      float noiseMask = fbm(distortedUV * 3.5 - vec2(0.0, u_time * 1.5));
+      float riseThreshold = (1.0 - p * 1.28) + noiseMask * 0.18;
+      mask = smoothstep(distortedUV.y - 0.16, distortedUV.y + 0.16, 1.0 - riseThreshold);
+      mask = max(mask, smoothstep(0.75, 1.0, p));
+    } else if (u_transition_type == 4) {
+      // Cloud Ascent -> Clouds OR Clouds -> Rain: Downward condensation mist
+      float noiseMask = fbm(distortedUV * 3.8 + vec2(0.0, u_time * 1.2));
+      float downThreshold = (1.0 - p * 1.28) + noiseMask * 0.18;
+      mask = smoothstep(downThreshold + 0.16, downThreshold - 0.16, distortedUV.y);
+      mask = max(mask, smoothstep(0.75, 1.0, p));
+    } else {
+      // Rain -> Ocean: Rain descent falling into ocean surface swell
+      float noiseMask = fbm(distortedUV * 4.2 + vec2(0.0, u_time * 1.8));
+      float oceanThreshold = (1.0 - p * 1.3) + noiseMask * 0.2;
+      mask = smoothstep(oceanThreshold + 0.16, oceanThreshold - 0.16, distortedUV.y);
       mask = max(mask, smoothstep(0.75, 1.0, p));
     }
     
@@ -189,7 +217,7 @@ void main() {
     finalColor = mix(colA, colB, clamp(mask, 0.0, 1.0)) + vec4(flashColor, 0.0);
   }
 
-  // 7. Subtle Underwater Suspended Particles (Marine snow / micro-bubbles)
+  // 7. Atmospheric Particulate (Marine snow, moisture vapor, rain streaks)
   if (u_environment_mode == 1 || u_environment_mode == 3 || u_transition_progress > 0.5) {
     vec2 pUV1 = distortedUV * 20.0 + vec2(u_time * 0.1, -u_time * 0.35);
     float n1 = noise(pUV1);
@@ -202,11 +230,22 @@ void main() {
     float particleDensity = (u_environment_mode == 3) ? 1.2 : 0.6;
     vec3 particleColor = vec3(0.85, 0.94, 1.0) * (part1 + part2) * particleDensity;
     finalColor.rgb += particleColor;
+  } else if (u_environment_mode == 4 || u_environment_mode == 5) {
+    // Cloud / Ascent soft atmospheric moisture particles
+    vec2 cUV = distortedUV * 18.0 + vec2(u_time * 0.05, u_time * 0.2);
+    float nCloud = noise(cUV);
+    float cPart = smoothstep(0.93, 0.99, nCloud) * 0.18;
+    finalColor.rgb += vec3(0.95, 0.98, 1.0) * cPart;
+  } else if (u_environment_mode == 6) {
+    // Rain micro-droplets
+    vec2 rUV = distortedUV * vec2(40.0, 8.0) - vec2(0.0, u_time * 14.0);
+    float nRain = noise(rUV);
+    float rPart = smoothstep(0.94, 0.99, nRain) * 0.22;
+    finalColor.rgb += vec3(0.85, 0.92, 1.0) * rPart;
   }
 
-  // 8. Choice Hover Biasing (Subtle environmental reaction)
+  // 8. Choice Hover Biasing
   if (u_choice_hover_bias.x < 0.0) {
-    // Left hover (Follow the Shore): subtle warm coastal light bleed on the left
     float leftInfluence = smoothstep(0.75, 0.0, screenUV.x) * abs(u_choice_hover_bias.x);
     vec3 shoreTint = vec3(0.05, 0.12, 0.1);
     finalColor.rgb += shoreTint * leftInfluence * 0.3;
@@ -214,27 +253,34 @@ void main() {
   }
   
   if (u_choice_hover_bias.y < 0.0) {
-    // Down hover (Descend): gentle deepening twilight vignette downwards
     float downInfluence = smoothstep(0.4, 1.0, 1.0 - screenUV.y) * abs(u_choice_hover_bias.y);
     vec3 deepTint = vec3(-0.08, -0.06, 0.01);
     finalColor.rgb += deepTint * downInfluence * 0.5;
   }
 
-  // Destination atmosphere contrast
+  // 9. Destination & Environment Atmosphere Calibration
   if (u_environment_mode == 2) {
     // SHORE: brighter, warmer, open coastal sunlight
     finalColor.rgb = mix(finalColor.rgb, finalColor.rgb * vec3(1.06, 1.04, 0.96) + vec3(0.02, 0.02, 0.006), 0.55);
   } else if (u_environment_mode == 3) {
     // DEEP: darker, slower, denser, deeper blue / near-black
     finalColor.rgb = pow(finalColor.rgb, vec3(1.12)) * vec3(0.9, 0.94, 1.02);
+  } else if (u_environment_mode == 4) {
+    // CLOUD ASCENT: luminous warm vapor glow
+    finalColor.rgb = mix(finalColor.rgb, finalColor.rgb * vec3(1.03, 1.03, 1.05), 0.4);
+  } else if (u_environment_mode == 5) {
+    // CLOUDS: soft volumetric atmospheric diffusion
+    finalColor.rgb = mix(finalColor.rgb, finalColor.rgb * vec3(1.02, 1.03, 1.06), 0.45);
+  } else if (u_environment_mode == 6) {
+    // RAIN: moody, rich stormy tone
+    finalColor.rgb = pow(finalColor.rgb, vec3(1.06)) * vec3(0.96, 0.98, 1.02);
   }
 
-  // 9. Film Tone: Cinematic Vignette & Micro-grain
+  // 10. Film Tone: Cinematic Vignette & Micro-grain
   float vig = length((screenUV - 0.5) * vec2(1.0, 0.88));
   float vignette = smoothstep(1.05, 0.5, vig);
   finalColor.rgb *= mix(0.85, 1.0, vignette);
 
-  // Subtle analog film grain unifying video plates with digital canvas
   float grain = (hash(screenUV * 1200.0 + fract(u_time * 19.0)) - 0.5) * 0.018;
   finalColor.rgb += grain;
 

@@ -279,12 +279,15 @@ export class WebGLRenderer {
     gl.uniform1f(this.uCursorRippleIntensityLoc, this.rippleIntensity);
     gl.uniform2f(this.uChoiceHoverBiasLoc, this.state.choiceHoverBias.x, this.state.choiceHoverBias.y);
 
-    // Environment mode (0 = ocean, 1 = underwater, 2 = shore, 3 = deep)
+    // Environment mode (0 = ocean, 1 = underwater, 2 = shore, 3 = deep, 4 = cloudAscent, 5 = clouds, 6 = rain)
     let mode = 0;
     if (this.state.environmentA === 'ocean') mode = 0;
     else if (this.state.environmentA === 'underwater') mode = 1;
     else if (this.state.environmentA === 'shore') mode = 2;
     else if (this.state.environmentA === 'deep') mode = 3;
+    else if (this.state.environmentA === 'cloudAscent') mode = 4;
+    else if (this.state.environmentA === 'clouds') mode = 5;
+    else if (this.state.environmentA === 'rain') mode = 6;
     gl.uniform1i(this.uEnvironmentModeLoc, mode);
 
     // Draw

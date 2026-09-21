@@ -7,8 +7,16 @@ import { OpeningUI } from './components/OpeningUI';
 import { IntroUI } from './components/IntroUI';
 import { ChoiceUI } from './components/ChoiceUI';
 import { DestinationUI } from './components/DestinationUI';
+import { CycleUI } from './components/CycleUI';
 
-export type FlowPhase = 'opening' | 'diving' | 'intro' | 'choice' | 'branching' | 'destination';
+export type FlowPhase =
+  | 'opening'
+  | 'diving'
+  | 'intro'
+  | 'choice'
+  | 'branching'
+  | 'destination'
+  | 'cycle';
 
 export const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -26,12 +34,15 @@ export const App: React.FC = () => {
     const renderer = new WebGLRenderer(canvas);
     rendererRef.current = renderer;
 
-    // 2. Pre-register media environments
+    // 2. Pre-register all media environments
     const mediaMgr = renderer.getMediaManager();
     mediaMgr.register('ocean', environments.ocean);
     mediaMgr.register('underwater', environments.underwater);
     mediaMgr.register('shore', environments.shore);
     mediaMgr.register('deep', environments.deep);
+    mediaMgr.register('cloudAscent', environments.cloudAscent);
+    mediaMgr.register('clouds', environments.clouds);
+    mediaMgr.register('rain', environments.rain);
 
     // 3. Initialize Camera Controller
     const camera = new CameraController(renderer);
@@ -52,9 +63,7 @@ export const App: React.FC = () => {
     setPhase('diving');
 
     cameraRef.current.executeDive({
-      onSubmerged: () => {
-        // Under the surface
-      },
+      onSubmerged: () => {},
       onComplete: () => {
         setCurrentScene('underwater');
         setPhase('intro');
@@ -82,6 +91,44 @@ export const App: React.FC = () => {
     cameraRef.current.executeBranchTransition(choice, () => {
       setCurrentScene(choice);
       setPhase('destination');
+    });
+  };
+
+  // SHORE -> CLOUD ASCENT (Evaporation)
+  const handleRise = () => {
+    if (!cameraRef.current) return;
+    setPhase('cycle');
+
+    cameraRef.current.executeAscent(() => {
+      setCurrentScene('cloudAscent');
+    });
+  };
+
+  // CLOUD ASCENT -> CLOUDS
+  const handleAdvanceFromCloudAscent = () => {
+    if (!cameraRef.current) return;
+
+    cameraRef.current.executeClouds(() => {
+      setCurrentScene('clouds');
+    });
+  };
+
+  // CLOUDS -> RAIN
+  const handleAdvanceFromClouds = () => {
+    if (!cameraRef.current) return;
+
+    cameraRef.current.executeRain(() => {
+      setCurrentScene('rain');
+    });
+  };
+
+  // RAIN -> OCEAN (Cycle reconnects to canonical ocean)
+  const handleAdvanceFromRain = () => {
+    if (!cameraRef.current) return;
+
+    cameraRef.current.executeRainToOcean(() => {
+      setCurrentScene('ocean');
+      setPhase('opening');
     });
   };
 
@@ -134,7 +181,32 @@ export const App: React.FC = () => {
           <DestinationUI
             sceneId={currentScene}
             onRestart={handleRestart}
+            onRise={currentScene === 'shore' ? handleRise : undefined}
           />
+        )}
+
+        {/* Phase 5: The Extended Cycle (Cloud Ascent -> Clouds -> Rain) */}
+        {phase === 'cycle' && (
+          <>
+            {currentScene === 'cloudAscent' && (
+              <CycleUI
+                sceneId="cloudAscent"
+                onAdvance={handleAdvanceFromCloudAscent}
+              />
+            )}
+            {currentScene === 'clouds' && (
+              <CycleUI
+                sceneId="clouds"
+                onAdvance={handleAdvanceFromClouds}
+              />
+            )}
+            {currentScene === 'rain' && (
+              <CycleUI
+                sceneId="rain"
+                onAdvance={handleAdvanceFromRain}
+              />
+            )}
+          </>
         )}
       </div>
     </main>
