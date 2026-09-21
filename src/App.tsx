@@ -1,224 +1,99 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { SceneId } from './types/story';
-import { environments, scenes } from './data/storyGraph';
-import { WebGLRenderer } from './webgl/Renderer';
-import { CameraController } from './animation/CameraController';
-import { OpeningUI } from './components/OpeningUI';
-import { IntroUI } from './components/IntroUI';
-import { ChoiceUI } from './components/ChoiceUI';
-import { DestinationUI } from './components/DestinationUI';
-import { CycleUI } from './components/CycleUI';
-
-export type FlowPhase =
-  | 'opening'
-  | 'diving'
-  | 'intro'
-  | 'choice'
-  | 'branching'
-  | 'destination'
-  | 'cycle';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Experience } from './core/Experience';
+import { StoryPhase } from './story/StoryDirector';
+import { QualityTier } from './core/QualityManager';
+import { ExperienceUI } from './components/ExperienceUI';
+import { DebugUI } from './components/DebugUI';
 
 export const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rendererRef = useRef<WebGLRenderer | null>(null);
-  const cameraRef = useRef<CameraController | null>(null);
+  const experienceRef = useRef<Experience | null>(null);
 
-  const [currentScene, setCurrentScene] = useState<SceneId>('ocean');
-  const [phase, setPhase] = useState<FlowPhase>('opening');
+  const [phase, setPhase] = useState<StoryPhase>('OPENING');
+  const [caption, setCaption] = useState<string | null>(null);
+  const [isDebugOpen, setIsDebugOpen] = useState(false);
+  const [debugStats, setDebugStats] = useState<any>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // 1. Initialize WebGL Renderer
-    const renderer = new WebGLRenderer(canvas);
-    rendererRef.current = renderer;
+    // Initialize the pure 3D / GLSL procedural Experience
+    const exp = new Experience(canvas, {
+      onPhaseChange: (newPhase) => setPhase(newPhase),
+      onCaptionChange: (newCap) => setCaption(newCap),
+    });
+    experienceRef.current = exp;
+    exp.start();
 
-    // 2. Pre-register all media environments
-    const mediaMgr = renderer.getMediaManager();
-    mediaMgr.register('ocean', environments.ocean);
-    mediaMgr.register('underwater', environments.underwater);
-    mediaMgr.register('shore', environments.shore);
-    mediaMgr.register('deep', environments.deep);
-    mediaMgr.register('cloudAscent', environments.cloudAscent);
-    mediaMgr.register('clouds', environments.clouds);
-    mediaMgr.register('rain', environments.rain);
+    // Telemetry polling interval for debug panel
+    const statsInterval = setInterval(() => {
+      if (experienceRef.current) {
+        setDebugStats(experienceRef.current.getStats());
+      }
+    }, 200);
 
-    // 3. Initialize Camera Controller
-    const camera = new CameraController(renderer);
-    cameraRef.current = camera;
-
-    // 4. Start Render Loop
-    renderer.start();
+    // Keyboard shortcut for debug panel ('D')
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'd' || e.key === 'D') {
+        setIsDebugOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      camera.destroy();
-      renderer.destroy();
+      clearInterval(statsInterval);
+      window.removeEventListener('keydown', handleKeyDown);
+      exp.destroy();
+      experienceRef.current = null;
     };
   }, []);
 
-  // START -> DIVE Transition
-  const handleStart = () => {
-    if (!cameraRef.current) return;
-    setPhase('diving');
+  const handleStart = useCallback(() => {
+    if (experienceRef.current) {
+      experienceRef.current.startStory();
+    }
+  }, []);
 
-    cameraRef.current.executeDive({
-      onSubmerged: () => {},
-      onComplete: () => {
-        setCurrentScene('underwater');
-        setPhase('intro');
-      },
-    });
-  };
+  const handleRestart = useCallback(() => {
+    if (experienceRef.current) {
+      experienceRef.current.resetStory();
+    }
+  }, []);
 
-  // INTRO -> FIRST CHOICE
-  const handleIntroComplete = () => {
-    setCurrentScene('choice');
-    setPhase('choice');
-  };
-
-  // CHOICE HOVER REACTION
-  const handleChoiceHover = (direction: 'left' | 'down' | null) => {
-    if (!cameraRef.current) return;
-    cameraRef.current.setChoiceHover(direction);
-  };
-
-  // FIRST CHOICE -> SHORE or DEEP
-  const handleSelectChoice = (choice: 'shore' | 'deep') => {
-    if (!cameraRef.current) return;
-    setPhase('branching');
-
-    cameraRef.current.executeBranchTransition(choice, () => {
-      setCurrentScene(choice);
-      setPhase('destination');
-    });
-  };
-
-  // SHORE -> CLOUD ASCENT (Evaporation)
-  const handleRise = () => {
-    if (!cameraRef.current) return;
-    setPhase('cycle');
-
-    cameraRef.current.executeAscent(() => {
-      setCurrentScene('cloudAscent');
-    });
-  };
-
-  // CLOUD ASCENT -> CLOUDS
-  const handleAdvanceFromCloudAscent = () => {
-    if (!cameraRef.current) return;
-
-    cameraRef.current.executeClouds(() => {
-      setCurrentScene('clouds');
-    });
-  };
-
-  // CLOUDS -> RAIN
-  const handleAdvanceFromClouds = () => {
-    if (!cameraRef.current) return;
-
-    cameraRef.current.executeRain(() => {
-      setCurrentScene('rain');
-    });
-  };
-
-  // RAIN -> OCEAN (Cycle reconnects to canonical ocean)
-  const handleAdvanceFromRain = () => {
-    if (!cameraRef.current) return;
-
-    cameraRef.current.executeRainToOcean(() => {
-      setCurrentScene('ocean');
-      setPhase('opening');
-    });
-  };
-
-  // DEEP -> OCEAN (Dedicated AI transition from abyss to ocean surface)
-  const handleDeepReturn = () => {
-    if (!cameraRef.current) return;
-    setPhase('cycle');
-    cameraRef.current.executeDeepToOcean(() => {
-      setCurrentScene('ocean');
-      setPhase('opening');
-    });
-  };
-
-  // RESTART LOOP
-  const handleRestart = () => {
-    if (!cameraRef.current) return;
-    cameraRef.current.resetToOcean();
-    setCurrentScene('ocean');
-    setPhase('opening');
-  };
-
-  const currentSceneConfig = scenes[currentScene];
+  const handleSetTier = useCallback((tier: QualityTier) => {
+    if (experienceRef.current) {
+      experienceRef.current.setQualityTier(tier);
+    }
+  }, []);
 
   return (
-    <main className="paani-experience">
-      {/* WebGL Canvas */}
-      <canvas ref={canvasRef} className="webgl-canvas" />
+    <main className="paani-root-container">
+      {/* 3D WebGL2 Canvas */}
+      <canvas ref={canvasRef} className="webgl3d-canvas" />
 
-      {/* Cinematic Overlays */}
-      <div className="film-grain-overlay" />
-      <div className="vignette-overlay" />
+      {/* Subtle Physical Surface Crossing Vignette Flash */}
+      <div
+        className={`surface-crossing-flash ${debugStats?.isUnderwater ? 'underwater' : ''}`}
+      />
 
-      {/* Interactive UI Layers */}
-      <div className="ui-layer">
-        {/* Phase 1: Ocean Opening & Dive Recession */}
-        <OpeningUI
-          isVisible={phase === 'opening' || phase === 'diving'}
-          onStart={handleStart}
-        />
+      {/* Cinematic Typography & UI Overlay */}
+      <ExperienceUI
+        phase={phase}
+        caption={caption}
+        onStart={handleStart}
+        onRestart={handleRestart}
+        onToggleDebug={() => setIsDebugOpen((prev) => !prev)}
+      />
 
-        {/* Phase 2: Underwater Intro Narrative */}
-        {phase === 'intro' && currentSceneConfig.narrative && (
-          <IntroUI
-            text={currentSceneConfig.narrative.text}
-            holdDuration={currentSceneConfig.narrative.holdDuration}
-            onComplete={handleIntroComplete}
-          />
-        )}
-
-        {/* Phase 3: The First Choice */}
-        {phase === 'choice' && (
-          <ChoiceUI
-            onHoverChoice={handleChoiceHover}
-            onSelectChoice={handleSelectChoice}
-          />
-        )}
-
-        {/* Phase 4: Branch Destinations (Shore / Deep) */}
-        {phase === 'destination' && (currentScene === 'shore' || currentScene === 'deep') && (
-          <DestinationUI
-            sceneId={currentScene}
-            onRestart={currentScene === 'deep' ? handleDeepReturn : handleRestart}
-            onRise={currentScene === 'shore' ? handleRise : undefined}
-          />
-        )}
-
-        {/* Phase 5: The Extended Cycle (Cloud Ascent -> Clouds -> Rain) */}
-        {phase === 'cycle' && (
-          <>
-            {currentScene === 'cloudAscent' && (
-              <CycleUI
-                sceneId="cloudAscent"
-                onAdvance={handleAdvanceFromCloudAscent}
-              />
-            )}
-            {currentScene === 'clouds' && (
-              <CycleUI
-                sceneId="clouds"
-                onAdvance={handleAdvanceFromClouds}
-              />
-            )}
-            {currentScene === 'rain' && (
-              <CycleUI
-                sceneId="rain"
-                onAdvance={handleAdvanceFromRain}
-              />
-            )}
-          </>
-        )}
-      </div>
+      {/* Developer Debug Telemetry Panel */}
+      <DebugUI
+        stats={debugStats}
+        isVisible={isDebugOpen}
+        onClose={() => setIsDebugOpen(false)}
+        onSetTier={handleSetTier}
+      />
     </main>
   );
 };
+export default App;
