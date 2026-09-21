@@ -107,9 +107,6 @@ export class Ocean {
   public update(time: number, cameraPos: THREE.Vector3) {
     this.material.uniforms.uTime.value = time;
     this.material.uniforms.uCameraPosition.value.copy(cameraPos);
-
-    this.mesh.position.x = Math.floor(cameraPos.x / 10) * 10;
-    this.mesh.position.z = Math.floor(cameraPos.z / 10) * 10;
   }
 
   /**

@@ -6,6 +6,8 @@ interface ExperienceUIProps {
   caption: string | null;
   onStart: () => void;
   onRestart: () => void;
+  onContinueToRainforest?: () => void;
+  onReplayLeaf?: () => void;
   onToggleDebug: () => void;
 }
 
@@ -14,6 +16,8 @@ export const ExperienceUI: React.FC<ExperienceUIProps> = ({
   caption,
   onStart,
   onRestart,
+  onContinueToRainforest,
+  onReplayLeaf,
   onToggleDebug,
 }) => {
   return (
@@ -50,13 +54,43 @@ export const ExperienceUI: React.FC<ExperienceUIProps> = ({
         </div>
       )}
 
-      {/* 3. Underwater Replay Action */}
+      {/* 3. Underwater Controls: Re-emerge or Ascend into Rainforest */}
       {phase === 'UNDERWATER' && (
         <div className="underwater-controls animate-fade-in">
           <button className="replay-cycle-btn" onClick={onRestart}>
             <span className="replay-icon">↻</span>
             <span className="replay-text">re-emerge</span>
           </button>
+          {onContinueToRainforest && (
+            <button
+              className="replay-cycle-btn"
+              onClick={onContinueToRainforest}
+              style={{ marginLeft: '12px', background: 'rgba(20, 55, 35, 0.45)' }}
+            >
+              <span className="replay-icon">↗</span>
+              <span className="replay-text">rainforest canopy</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 4. Rainforest Puddle Completion Controls */}
+      {phase === 'RAINFOREST_PUDDLE' && (
+        <div className="underwater-controls animate-fade-in">
+          <button className="replay-cycle-btn" onClick={onRestart}>
+            <span className="replay-icon">↻</span>
+            <span className="replay-text">return to ocean</span>
+          </button>
+          {onReplayLeaf && (
+            <button
+              className="replay-cycle-btn"
+              onClick={onReplayLeaf}
+              style={{ marginLeft: '12px', background: 'rgba(20, 55, 35, 0.45)' }}
+            >
+              <span className="replay-icon">💧</span>
+              <span className="replay-text">replay leaf drop</span>
+            </button>
+          )}
         </div>
       )}
 

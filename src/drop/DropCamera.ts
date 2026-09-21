@@ -1,7 +1,15 @@
 import * as THREE from 'three';
 import { Ocean } from '../world/Ocean';
 
-export type CameraCinematicMode = 'OPENING' | 'REVEAL' | 'FOLLOW' | 'UNDERWATER';
+export type CameraCinematicMode =
+  | 'OPENING'
+  | 'REVEAL'
+  | 'FOLLOW'
+  | 'UNDERWATER'
+  | 'RAINFOREST_TRANSITION'
+  | 'RAINFOREST_CANOPY'
+  | 'RAINFOREST_LEAF'
+  | 'RAINFOREST_PUDDLE';
 
 export class DropCamera {
   public instance: THREE.PerspectiveCamera;
@@ -21,9 +29,16 @@ export class DropCamera {
   private airOffset = new THREE.Vector3(0.32, 0.28, 1.75);
   private underwaterOffset = new THREE.Vector3(0.28, 0.42, 1.75);
 
+  // Rainforest framing targets
+  private canopyCamPos = new THREE.Vector3(-3.5, 12.0, 14.0);
+  private canopyLookAt = new THREE.Vector3(2.0, 16.0, -2.0);
+
+  private leafCamOffset = new THREE.Vector3(0.65, 0.45, 1.45);
+
   private ocean: Ocean;
   private revealProgress = 0.0;
   private isTransitioningToReveal = false;
+  private transitionTimer = 0.0;
 
   constructor(ocean: Ocean, aspect: number) {
     this.ocean = ocean;
@@ -46,6 +61,7 @@ export class DropCamera {
 
   public setMode(mode: CameraCinematicMode) {
     this.mode = mode;
+    this.transitionTimer = 0.0;
   }
 
   public reset() {
@@ -54,6 +70,7 @@ export class DropCamera {
     this.isTransitioningToReveal = false;
     this.isUnderwater = false;
     this.surfaceCrossIntensity = 0.0;
+    this.transitionTimer = 0.0;
     this.instance.position.copy(this.openingCamPos);
     this.currentLookTarget.copy(this.openingLookAt);
     this.desiredLookTarget.copy(this.openingLookAt);
@@ -61,6 +78,8 @@ export class DropCamera {
   }
 
   public update(delta: number, time: number, dropPosition: THREE.Vector3, _dropState: string) {
+    this.transitionTimer += delta;
+
     // 1. Reveal transition progress (takes ~2.2 seconds)
     if (this.isTransitioningToReveal && this.revealProgress < 1.0) {
       this.revealProgress = Math.min(this.revealProgress + delta * 0.52, 1.0);
@@ -87,6 +106,34 @@ export class DropCamera {
       const targetRevealCam = dropPosition.clone().add(this.airOffset);
       this.targetPosition.lerpVectors(this.openingCamPos, targetRevealCam, smoothT);
       this.desiredLookTarget.lerpVectors(this.openingLookAt, dropPosition, smoothT);
+    } else if (this.mode === 'RAINFOREST_TRANSITION') {
+      // Ascends from ocean water through shoreline mist towards high canopy
+      const t = Math.min(this.transitionTimer / 3.5, 1.0);
+      const smoothT = t * t * (3.0 - 2.0 * t);
+      const startPos = new THREE.Vector3(0, 0.8, 3.0);
+      this.targetPosition.lerpVectors(startPos, this.canopyCamPos, smoothT);
+      const startLook = new THREE.Vector3(0, 0.5, -10.0);
+      this.desiredLookTarget.lerpVectors(startLook, this.canopyLookAt, smoothT);
+    } else if (this.mode === 'RAINFOREST_CANOPY') {
+      // Drifting majestic view of canopy sunbeams
+      const driftX = Math.sin(time * 0.3) * 0.6;
+      const driftY = Math.cos(time * 0.25) * 0.4;
+      this.targetPosition.set(
+        this.canopyCamPos.x + driftX,
+        this.canopyCamPos.y + driftY,
+        this.canopyCamPos.z
+      );
+      this.desiredLookTarget.copy(this.canopyLookAt);
+    } else if (this.mode === 'RAINFOREST_LEAF') {
+      // Tight macro tracking of the hero drop on the leaf
+      this.targetPosition.copy(dropPosition).add(this.leafCamOffset);
+      this.desiredLookTarget.copy(dropPosition);
+    } else if (this.mode === 'RAINFOREST_PUDDLE') {
+      // Low angle framing the puddle reflection and ripples
+      const puddleCam = new THREE.Vector3(0.95, 1.15, 6.2);
+      const puddleLook = new THREE.Vector3(0.24, 0.48, 5.0);
+      this.targetPosition.copy(puddleCam);
+      this.desiredLookTarget.copy(puddleLook);
     } else {
       // 'FOLLOW' or 'UNDERWATER'
       const offset = this.isUnderwater ? this.underwaterOffset : this.airOffset;
@@ -106,6 +153,12 @@ export class DropCamera {
     this.instance.lookAt(this.currentLookTarget);
 
     // 4. Physical surface crossing detection
+    const isRainforestMode =
+      this.mode === 'RAINFOREST_TRANSITION' ||
+      this.mode === 'RAINFOREST_CANOPY' ||
+      this.mode === 'RAINFOREST_LEAF' ||
+      this.mode === 'RAINFOREST_PUDDLE';
+
     const waterHeight = this.ocean.getWaterHeightAt(
       this.instance.position.x,
       this.instance.position.z,
@@ -113,7 +166,7 @@ export class DropCamera {
     );
 
     const wasUnderwater = this.isUnderwater;
-    this.isUnderwater = this.instance.position.y < waterHeight;
+    this.isUnderwater = !isRainforestMode && (this.mode === 'UNDERWATER' || this.instance.position.y < waterHeight);
 
     if (!wasUnderwater && this.isUnderwater) {
       this.surfaceCrossIntensity = 1.0;

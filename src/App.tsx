@@ -61,6 +61,18 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  const handleContinueToRainforest = useCallback(() => {
+    if (experienceRef.current) {
+      experienceRef.current.startRainforestJourney();
+    }
+  }, []);
+
+  const handleReplayLeaf = useCallback(() => {
+    if (experienceRef.current) {
+      experienceRef.current.startLeafInteraction();
+    }
+  }, []);
+
   const handleSetTier = useCallback((tier: QualityTier) => {
     if (experienceRef.current) {
       experienceRef.current.setQualityTier(tier);
@@ -83,6 +95,8 @@ export const App: React.FC = () => {
         caption={caption}
         onStart={handleStart}
         onRestart={handleRestart}
+        onContinueToRainforest={handleContinueToRainforest}
+        onReplayLeaf={handleReplayLeaf}
         onToggleDebug={() => setIsDebugOpen((prev) => !prev)}
       />
 
@@ -92,6 +106,9 @@ export const App: React.FC = () => {
         isVisible={isDebugOpen}
         onClose={() => setIsDebugOpen(false)}
         onSetTier={handleSetTier}
+        onJumpOcean={() => experienceRef.current?.resetStory()}
+        onJumpRainforest={() => experienceRef.current?.jumpToRainforest()}
+        onJumpLeaf={() => experienceRef.current?.startLeafInteraction()}
       />
     </main>
   );

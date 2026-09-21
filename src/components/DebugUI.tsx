@@ -10,6 +10,8 @@ interface DebugStats {
   triangles: number;
   dropY: string;
   isUnderwater: boolean;
+  phase?: string;
+  environment?: string;
 
   // Phase 5 Water Interaction Telemetry
   impactEnergy?: string;
@@ -26,9 +28,20 @@ interface DebugUIProps {
   isVisible: boolean;
   onClose: () => void;
   onSetTier: (tier: QualityTier) => void;
+  onJumpOcean?: () => void;
+  onJumpRainforest?: () => void;
+  onJumpLeaf?: () => void;
 }
 
-export const DebugUI: React.FC<DebugUIProps> = ({ stats, isVisible, onClose, onSetTier }) => {
+export const DebugUI: React.FC<DebugUIProps> = ({
+  stats,
+  isVisible,
+  onClose,
+  onSetTier,
+  onJumpOcean,
+  onJumpRainforest,
+  onJumpLeaf,
+}) => {
   if (!isVisible || !stats) return null;
 
   return (
@@ -52,8 +65,8 @@ export const DebugUI: React.FC<DebugUIProps> = ({ stats, isVisible, onClose, onS
           <span className="debug-value highlight">{stats.tier}</span>
         </div>
         <div className="debug-item">
-          <span className="debug-label">DPR Cap</span>
-          <span className="debug-value">{stats.dpr.toFixed(2)}x</span>
+          <span className="debug-label">Environment</span>
+          <span className="debug-value highlight">{stats.environment ?? 'Ocean'}</span>
         </div>
         <div className="debug-item">
           <span className="debug-label">Draw Calls</span>
@@ -104,6 +117,25 @@ export const DebugUI: React.FC<DebugUIProps> = ({ stats, isVisible, onClose, onS
       </div>
 
       <div className="debug-tier-selector">
+        <span className="debug-label">Jump Scene:</span>
+        <div className="tier-buttons" style={{ marginBottom: '8px' }}>
+          {onJumpOcean && (
+            <button className="tier-btn" onClick={onJumpOcean}>
+              Ocean
+            </button>
+          )}
+          {onJumpRainforest && (
+            <button className="tier-btn" onClick={onJumpRainforest}>
+              Canopy
+            </button>
+          )}
+          {onJumpLeaf && (
+            <button className="tier-btn" onClick={onJumpLeaf}>
+              Hero Leaf
+            </button>
+          )}
+        </div>
+
         <span className="debug-label">Override Tier:</span>
         <div className="tier-buttons">
           {(['HIGH', 'MEDIUM', 'LOW'] as QualityTier[]).map((t) => (
