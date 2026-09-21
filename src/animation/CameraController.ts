@@ -1,5 +1,6 @@
 import gsap from 'gsap';
 import { TransitionRecipe } from '../types/story';
+import { transitions } from '../data/storyGraph';
 import { WebGLRenderer } from '../webgl/Renderer';
 
 export class CameraController {
@@ -71,38 +72,52 @@ export class CameraController {
   }
 
   /**
-   * 1. SURFACE DIVE: OCEAN -> UNDERWATER (~2.8s)
-   * Multi-stage physical sequence:
-   * Phase 1: Camera moves toward water (0.0-1.2s)
-   * Phase 2: Foreground water expands (0.8-1.8s)
-   * Phase 3: Surface bending/refraction & brief soft optical event (1.4-2.0s)
-   * Phase 4: Camera passes through surface into underwater plate (1.6-2.5s)
-   * Phase 5: Settle underwater (2.2-2.8s)
+   * 1. SURFACE DIVE: OCEAN -> UNDERWATER
+   * Primary: Dedicated AI transition footage (ocean_to_underwater.mp4)
+   * Fallback: Procedural surface-dive shader recipe
    */
-  public executeDive(callbacks: {
+  public async executeDive(callbacks: {
     onSurfaceContact?: () => void;
     onSubmerged?: () => void;
     onComplete?: () => void;
-  }): gsap.core.Timeline {
+  }): Promise<gsap.core.Timeline> {
     this.isDiving = true;
     this.values.ambientBobY = 0;
     this.values.ambientBobTilt = 0;
+
+    const mediaMgr = this.renderer.getMediaManager();
+    const config = transitions['ocean-to-underwater'];
+
+    // Preload dedicated AI transition video
+    let hasVideo = false;
+    if (config?.videoSrc) {
+      hasVideo = await mediaMgr.preloadTransitionVideo(config.videoSrc, config.maxWaitMs);
+    }
+
+    const revealStart = config?.revealStart ?? 0.65;
+    const revealEnd = config?.revealEnd ?? 0.95;
 
     this.renderer.setState({
       environmentA: 'ocean',
       environmentB: 'underwater',
       transitionRecipe: 'surface-dive',
       transitionProgress: 0.0,
+      revealStart,
+      revealEnd,
     });
     this.values.transitionRecipe = 'surface-dive';
     this.values.transitionProgress = 0.0;
 
-    // Warm up incoming underwater media ahead of reveal
-    this.renderer.getMediaManager().play('underwater');
+    // Warm up incoming underwater media
+    mediaMgr.play('underwater');
+    if (hasVideo) {
+      mediaMgr.playTransition();
+    }
 
     const tl = gsap.timeline({
       onComplete: () => {
         this.isDiving = false;
+        mediaMgr.clearTransition();
         this.renderer.setState({
           environmentA: 'underwater',
           environmentB: 'underwater',
@@ -117,58 +132,122 @@ export class CameraController {
       },
     });
 
-    // Phase 1 & 2: Camera accelerates toward horizon and dives into foreground water
-    tl.to(
-      this.values,
-      {
-        cameraZoom: 1.48,
-        cameraOffsetY: -0.13,
-        cameraTilt: -0.008,
-        duration: 1.6,
-        ease: 'power2.in',
-      },
-      0.1
-    );
-
-    // Phase 3: Controlled soft Fresnel surface refraction (restrained peak, max 0.35)
-    tl.to(
-      this.values,
-      {
-        distortionAmount: 0.35,
-        chromaticAberration: 0.007,
-        duration: 0.6,
+    if (hasVideo) {
+      // -------------------------------------------------------------
+      // DEDICATED AI FOOTAGE SEQUENCE (~4.2s)
+      // Footage physically plunges through the surface with bubbles
+      // WebGL adds only subtle optical enhancement and boundary easing
+      // -------------------------------------------------------------
+      // Subtle camera acceleration into water
+      tl.to(this.values, {
+        cameraZoom: 1.18,
+        cameraOffsetY: -0.05,
+        duration: 1.2,
         ease: 'power1.in',
-        onComplete: () => callbacks.onSurfaceContact?.(),
-      },
-      1.3
-    );
+      });
 
-    // Phase 4: Passing through surface (reveals underwater before peak distortion fully finishes)
-    tl.to(
-      this.values,
-      {
-        transitionProgress: 1.0,
-        duration: 1.5,
-        ease: 'power2.inOut',
-        onStart: () => callbacks.onSubmerged?.(),
-      },
-      1.5
-    );
+      // Surface contact optical cue
+      tl.add(() => callbacks.onSurfaceContact?.(), 0.8);
+      tl.add(() => callbacks.onSubmerged?.(), 1.8);
 
-    // Phase 5: Settle underwater smoothly
-    tl.to(
-      this.values,
-      {
-        cameraZoom: 1.03,
-        cameraOffsetY: 0.0,
-        cameraTilt: 0.0,
-        distortionAmount: 0.0,
-        chromaticAberration: 0.0012,
-        duration: 1.1,
-        ease: 'power3.out',
-      },
-      1.8
-    );
+      // Transition progress driving AI video -> underwater reveal
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 3.8,
+          ease: 'none',
+        },
+        0.0
+      );
+
+      // Subtle optical meniscus gleam and micro-refraction (restrained)
+      tl.to(
+        this.values,
+        {
+          distortionAmount: 0.12,
+          chromaticAberration: 0.003,
+          duration: 0.8,
+          ease: 'sine.in',
+        },
+        0.4
+      );
+      tl.to(
+        this.values,
+        {
+          distortionAmount: 0.0,
+          chromaticAberration: 0.0012,
+          duration: 1.2,
+          ease: 'sine.out',
+        },
+        1.2
+      );
+
+      // Settle camera smoothly into underwater.mp4
+      tl.to(
+        this.values,
+        {
+          cameraZoom: 1.0,
+          cameraOffsetY: 0.0,
+          cameraTilt: 0.0,
+          duration: 1.4,
+          ease: 'power2.out',
+        },
+        2.6
+      );
+    } else {
+      // -------------------------------------------------------------
+      // PROCEDURAL FALLBACK RECIPE (100% shader)
+      // -------------------------------------------------------------
+      tl.to(
+        this.values,
+        {
+          cameraZoom: 1.48,
+          cameraOffsetY: -0.13,
+          cameraTilt: -0.008,
+          duration: 1.6,
+          ease: 'power2.in',
+        },
+        0.1
+      );
+
+      tl.to(
+        this.values,
+        {
+          distortionAmount: 0.35,
+          chromaticAberration: 0.007,
+          duration: 0.6,
+          ease: 'power1.in',
+          onComplete: () => callbacks.onSurfaceContact?.(),
+        },
+        1.3
+      );
+
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 1.5,
+          ease: 'power2.inOut',
+          onStart: () => callbacks.onSubmerged?.(),
+        },
+        1.5
+      );
+
+      tl.to(
+        this.values,
+        {
+          cameraZoom: 1.0,
+          cameraOffsetY: 0.0,
+          cameraTilt: 0.0,
+          distortionAmount: 0.0,
+          chromaticAberration: 0.0012,
+          duration: 1.1,
+          ease: 'power3.out',
+        },
+        2.1
+      );
+    }
 
     return tl;
   }
@@ -329,24 +408,43 @@ export class CameraController {
   }
 
   /**
-   * 3. EVAPORATION: SHORE -> CLOUD ASCENT (~2.5s)
-   * Camera rises, warm vapor veil increases, shore obscured by light, cloud-ascent emerges
+   * 3. EVAPORATION / ASCENT: SHORE -> CLOUD ASCENT
+   * Primary: Dedicated AI transition footage (shore_to_sky.mp4)
+   * Fallback: Procedural evaporation shader recipe
    */
-  public executeAscent(onComplete?: () => void): gsap.core.Timeline {
+  public async executeAscent(onComplete?: () => void): Promise<gsap.core.Timeline> {
     this.isTransitioning = true;
+    const mediaMgr = this.renderer.getMediaManager();
+    const config = transitions['shore-to-ascent'];
+
+    let hasVideo = false;
+    if (config?.videoSrc) {
+      hasVideo = await mediaMgr.preloadTransitionVideo(config.videoSrc, config.maxWaitMs);
+    }
+
+    const revealStart = config?.revealStart ?? 0.60;
+    const revealEnd = config?.revealEnd ?? 0.92;
+
     this.renderer.setState({
       environmentA: 'shore',
       environmentB: 'cloudAscent',
       transitionRecipe: 'evaporation',
       transitionProgress: 0.0,
+      revealStart,
+      revealEnd,
     });
     this.values.transitionRecipe = 'evaporation';
     this.values.transitionProgress = 0.0;
-    this.renderer.getMediaManager().play('cloudAscent');
+
+    mediaMgr.play('cloudAscent');
+    if (hasVideo) {
+      mediaMgr.playTransition();
+    }
 
     const tl = gsap.timeline({
       onComplete: () => {
         this.isTransitioning = false;
+        mediaMgr.clearTransition();
         this.renderer.setState({
           environmentA: 'cloudAscent',
           environmentB: 'cloudAscent',
@@ -361,32 +459,67 @@ export class CameraController {
       },
     });
 
-    // Upward camera momentum through rising vapor
-    tl.to(this.values, {
-      cameraOffsetY: 0.07,
-      cameraZoom: 1.08,
-      duration: 1.1,
-      ease: 'power2.in',
-    });
-    tl.to(
-      this.values,
-      {
-        transitionProgress: 1.0,
-        duration: 1.6,
-        ease: 'power2.inOut',
-      },
-      '-=0.4'
-    );
-    tl.to(
-      this.values,
-      {
-        cameraOffsetY: 0.0,
-        cameraZoom: 1.0,
+    if (hasVideo) {
+      // -------------------------------------------------------------
+      // DEDICATED AI FOOTAGE (shore_to_sky.mp4)
+      // Camera tilts upward from dunes into brilliant sun & atmospheric sky
+      // -------------------------------------------------------------
+      tl.to(this.values, {
+        cameraOffsetY: 0.04,
+        cameraZoom: 1.05,
         duration: 1.2,
-        ease: 'power3.out',
-      },
-      '-=0.6'
-    );
+        ease: 'power1.in',
+      });
+
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 3.8,
+          ease: 'none',
+        },
+        0.0
+      );
+
+      // Settle camera into cloud-ascent.mp4
+      tl.to(
+        this.values,
+        {
+          cameraOffsetY: 0.0,
+          cameraZoom: 1.0,
+          duration: 1.4,
+          ease: 'power2.out',
+        },
+        2.4
+      );
+    } else {
+      // Upward camera momentum through rising vapor (fallback)
+      tl.to(this.values, {
+        cameraOffsetY: 0.07,
+        cameraZoom: 1.08,
+        duration: 1.1,
+        ease: 'power2.in',
+      });
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 1.6,
+          ease: 'power2.inOut',
+        },
+        '-=0.4'
+      );
+      tl.to(
+        this.values,
+        {
+          cameraOffsetY: 0.0,
+          cameraZoom: 1.0,
+          duration: 1.2,
+          ease: 'power3.out',
+        },
+        '-=0.6'
+      );
+    }
 
     return tl;
   }
@@ -453,24 +586,43 @@ export class CameraController {
   }
 
   /**
-   * 5. RAINFALL: CLOUDS -> RAIN (~2.2s)
-   * Cloud atmosphere darkens slightly, downward momentum, moisture particles emerge into rain
+   * 5. RAINFALL: CLOUDS -> RAIN
+   * Primary: Dedicated AI transition footage (cloud_to_rain.mp4)
+   * Fallback: Procedural rainfall shader recipe
    */
-  public executeRain(onComplete?: () => void): gsap.core.Timeline {
+  public async executeRain(onComplete?: () => void): Promise<gsap.core.Timeline> {
     this.isTransitioning = true;
+    const mediaMgr = this.renderer.getMediaManager();
+    const config = transitions['clouds-to-rain'];
+
+    let hasVideo = false;
+    if (config?.videoSrc) {
+      hasVideo = await mediaMgr.preloadTransitionVideo(config.videoSrc, config.maxWaitMs);
+    }
+
+    const revealStart = config?.revealStart ?? 0.62;
+    const revealEnd = config?.revealEnd ?? 0.94;
+
     this.renderer.setState({
       environmentA: 'clouds',
       environmentB: 'rain',
       transitionRecipe: 'rainfall',
       transitionProgress: 0.0,
+      revealStart,
+      revealEnd,
     });
     this.values.transitionRecipe = 'rainfall';
     this.values.transitionProgress = 0.0;
-    this.renderer.getMediaManager().play('rain');
+
+    mediaMgr.play('rain');
+    if (hasVideo) {
+      mediaMgr.playTransition();
+    }
 
     const tl = gsap.timeline({
       onComplete: () => {
         this.isTransitioning = false;
+        mediaMgr.clearTransition();
         this.renderer.setState({
           environmentA: 'rain',
           environmentB: 'rain',
@@ -485,32 +637,67 @@ export class CameraController {
       },
     });
 
-    // Downward momentum into rainfall
-    tl.to(this.values, {
-      cameraOffsetY: -0.12,
-      cameraZoom: 1.12,
-      duration: 1.0,
-      ease: 'power2.in',
-    });
-    tl.to(
-      this.values,
-      {
-        transitionProgress: 1.0,
-        duration: 1.5,
-        ease: 'power2.inOut',
-      },
-      '-=0.4'
-    );
-    tl.to(
-      this.values,
-      {
-        cameraOffsetY: 0.0,
-        cameraZoom: 1.0,
-        duration: 1.1,
-        ease: 'power3.out',
-      },
-      '-=0.5'
-    );
+    if (hasVideo) {
+      // -------------------------------------------------------------
+      // DEDICATED AI FOOTAGE (cloud_to_rain.mp4)
+      // Clouds condense into rain droplets and rainfall veil
+      // -------------------------------------------------------------
+      tl.to(this.values, {
+        cameraOffsetY: -0.05,
+        cameraZoom: 1.06,
+        duration: 1.2,
+        ease: 'power1.in',
+      });
+
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 3.8,
+          ease: 'none',
+        },
+        0.0
+      );
+
+      // Settle camera into rain.mp4
+      tl.to(
+        this.values,
+        {
+          cameraOffsetY: 0.0,
+          cameraZoom: 1.0,
+          duration: 1.4,
+          ease: 'power2.out',
+        },
+        2.4
+      );
+    } else {
+      // Downward momentum into rainfall (fallback)
+      tl.to(this.values, {
+        cameraOffsetY: -0.12,
+        cameraZoom: 1.12,
+        duration: 1.0,
+        ease: 'power2.in',
+      });
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 1.5,
+          ease: 'power2.inOut',
+        },
+        '-=0.4'
+      );
+      tl.to(
+        this.values,
+        {
+          cameraOffsetY: 0.0,
+          cameraZoom: 1.0,
+          duration: 1.1,
+          ease: 'power3.out',
+        },
+        '-=0.5'
+      );
+    }
 
     return tl;
   }
@@ -520,54 +707,224 @@ export class CameraController {
    * Descending perspective, rain accelerates, ocean surface emerges below,
    * camera touches down and settles EXACTLY at canonical ocean opening framing!
    */
-  public executeRainToOcean(onComplete?: () => void): gsap.core.Timeline {
+  /**
+   * 6. OCEAN RETURN: RAIN -> OCEAN
+   * Primary: Dedicated AI transition footage (rain_to_ocean.mp4)
+   * Fallback: Procedural ocean-return shader recipe
+   */
+  public async executeRainToOcean(onComplete?: () => void): Promise<gsap.core.Timeline> {
     this.isTransitioning = true;
+    const mediaMgr = this.renderer.getMediaManager();
+    const config = transitions['rain-to-ocean'];
+
+    let hasVideo = false;
+    if (config?.videoSrc) {
+      hasVideo = await mediaMgr.preloadTransitionVideo(config.videoSrc, config.maxWaitMs);
+    }
+
+    const revealStart = config?.revealStart ?? 0.52;
+    const revealEnd = config?.revealEnd ?? 0.90;
+
     this.renderer.setState({
       environmentA: 'rain',
       environmentB: 'ocean',
       transitionRecipe: 'ocean-return',
       transitionProgress: 0.0,
+      revealStart,
+      revealEnd,
     });
     this.values.transitionRecipe = 'ocean-return';
     this.values.transitionProgress = 0.0;
-    this.renderer.getMediaManager().play('ocean');
+
+    mediaMgr.play('ocean');
+    if (hasVideo) {
+      mediaMgr.playTransition();
+    }
 
     const tl = gsap.timeline({
       onComplete: () => {
         this.isTransitioning = false;
+        mediaMgr.clearTransition();
         this.resetToOcean();
         onComplete?.();
       },
     });
 
-    // Descending toward ocean surface
-    tl.to(this.values, {
-      cameraOffsetY: -0.08,
-      cameraZoom: 1.15,
-      distortionAmount: 0.15,
-      duration: 1.2,
-      ease: 'power2.in',
+    if (hasVideo) {
+      // -------------------------------------------------------------
+      // DEDICATED AI FOOTAGE (rain_to_ocean.mp4)
+      // Downpour accelerates toward sea surface, whitecaps splash,
+      // camera touches water and settles into canonical ocean swell
+      // -------------------------------------------------------------
+      tl.to(this.values, {
+        cameraOffsetY: -0.04,
+        cameraZoom: 1.05,
+        duration: 1.2,
+        ease: 'power1.in',
+      });
+
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 3.8,
+          ease: 'none',
+        },
+        0.0
+      );
+
+      // Settle gently to exact canonical ocean framing (zoom 1.0, offset 0.0, tilt 0.0)
+      tl.to(
+        this.values,
+        {
+          cameraOffsetY: 0.0,
+          cameraZoom: 1.0,
+          cameraTilt: 0.0,
+          duration: 1.4,
+          ease: 'power2.out',
+        },
+        2.4
+      );
+    } else {
+      // Descending toward ocean surface (procedural fallback)
+      tl.to(this.values, {
+        cameraOffsetY: -0.08,
+        cameraZoom: 1.15,
+        distortionAmount: 0.15,
+        duration: 1.2,
+        ease: 'power2.in',
+      });
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 1.8,
+          ease: 'power2.inOut',
+        },
+        '-=0.5'
+      );
+      tl.to(
+        this.values,
+        {
+          cameraOffsetY: 0.0,
+          cameraZoom: 1.0,
+          distortionAmount: 0.0,
+          duration: 1.3,
+          ease: 'power3.out',
+        },
+        '-=0.6'
+      );
+    }
+
+    return tl;
+  }
+
+  /**
+   * 7. DEEP RETURN: DEEP -> OCEAN
+   * Primary: Dedicated AI transition footage (deep_to_ocean.mp4)
+   * Fallback: Procedural deep-return shader recipe
+   */
+  public async executeDeepToOcean(onComplete?: () => void): Promise<gsap.core.Timeline> {
+    this.isTransitioning = true;
+    const mediaMgr = this.renderer.getMediaManager();
+    const config = transitions['deep-to-ocean'];
+
+    let hasVideo = false;
+    if (config?.videoSrc) {
+      hasVideo = await mediaMgr.preloadTransitionVideo(config.videoSrc, config.maxWaitMs);
+    }
+
+    const revealStart = config?.revealStart ?? 0.55;
+    const revealEnd = config?.revealEnd ?? 0.92;
+
+    this.renderer.setState({
+      environmentA: 'deep',
+      environmentB: 'ocean',
+      transitionRecipe: 'deep-return',
+      transitionProgress: 0.0,
+      revealStart,
+      revealEnd,
     });
-    tl.to(
-      this.values,
-      {
-        transitionProgress: 1.0,
-        duration: 1.8,
-        ease: 'power2.inOut',
+    this.values.transitionRecipe = 'deep-return';
+    this.values.transitionProgress = 0.0;
+
+    mediaMgr.play('ocean');
+    if (hasVideo) {
+      mediaMgr.playTransition();
+    }
+
+    const tl = gsap.timeline({
+      onComplete: () => {
+        this.isTransitioning = false;
+        mediaMgr.clearTransition();
+        this.resetToOcean();
+        onComplete?.();
       },
-      '-=0.5'
-    );
-    tl.to(
-      this.values,
-      {
-        cameraOffsetY: 0.0,
-        cameraZoom: 1.0,
-        distortionAmount: 0.0,
-        duration: 1.3,
-        ease: 'power3.out',
-      },
-      '-=0.6'
-    );
+    });
+
+    if (hasVideo) {
+      // -------------------------------------------------------------
+      // DEDICATED AI FOOTAGE (deep_to_ocean.mp4)
+      // Camera ascends from abyssal marine snow through upward bubbles
+      // and sunbeams, breaking through to the canonical ocean surface
+      // -------------------------------------------------------------
+      tl.to(this.values, {
+        cameraOffsetY: 0.04,
+        cameraZoom: 1.05,
+        duration: 1.2,
+        ease: 'power1.in',
+      });
+
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 3.8,
+          ease: 'none',
+        },
+        0.0
+      );
+
+      // Settle camera into exact canonical ocean horizon
+      tl.to(
+        this.values,
+        {
+          cameraOffsetY: 0.0,
+          cameraZoom: 1.0,
+          cameraTilt: 0.0,
+          duration: 1.4,
+          ease: 'power2.out',
+        },
+        2.4
+      );
+    } else {
+      // Upward surge from abyss to ocean (procedural fallback)
+      tl.to(this.values, {
+        cameraOffsetY: 0.08,
+        cameraZoom: 1.12,
+        duration: 1.2,
+        ease: 'power2.in',
+      });
+      tl.to(
+        this.values,
+        {
+          transitionProgress: 1.0,
+          duration: 1.8,
+          ease: 'power2.inOut',
+        },
+        '-=0.5'
+      );
+      tl.to(
+        this.values,
+        {
+          cameraOffsetY: 0.0,
+          cameraZoom: 1.0,
+          duration: 1.3,
+          ease: 'power3.out',
+        },
+        '-=0.6'
+      );
+    }
 
     return tl;
   }
@@ -577,8 +934,15 @@ export class CameraController {
       environmentA: 'ocean',
       environmentB: 'underwater',
       transitionProgress: 0.0,
+      revealStart: 0.65,
+      revealEnd: 0.95,
       transitionRecipe: 'none',
       choiceHoverBias: { x: 0, y: 0 },
+      distortionAmount: 0.0,
+      chromaticAberration: 0.0012,
+      cameraOffset: { x: 0, y: 0 },
+      cameraZoom: 1.0,
+      cameraTilt: 0,
     });
     this.values.cameraOffsetX = 0;
     this.values.cameraOffsetY = 0;

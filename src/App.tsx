@@ -132,6 +132,16 @@ export const App: React.FC = () => {
     });
   };
 
+  // DEEP -> OCEAN (Dedicated AI transition from abyss to ocean surface)
+  const handleDeepReturn = () => {
+    if (!cameraRef.current) return;
+    setPhase('cycle');
+    cameraRef.current.executeDeepToOcean(() => {
+      setCurrentScene('ocean');
+      setPhase('opening');
+    });
+  };
+
   // RESTART LOOP
   const handleRestart = () => {
     if (!cameraRef.current) return;
@@ -180,7 +190,7 @@ export const App: React.FC = () => {
         {phase === 'destination' && (currentScene === 'shore' || currentScene === 'deep') && (
           <DestinationUI
             sceneId={currentScene}
-            onRestart={handleRestart}
+            onRestart={currentScene === 'deep' ? handleDeepReturn : handleRestart}
             onRise={currentScene === 'shore' ? handleRise : undefined}
           />
         )}

@@ -23,6 +23,22 @@ export const DestinationUI: React.FC<DestinationUIProps> = ({ sceneId, onRestart
 
   const isShore = sceneId === 'shore';
 
+  const handleAction = (cb?: () => void) => {
+    if (!cb) return;
+    if (containerRef.current) {
+      gsap.to(containerRef.current, {
+        opacity: 0,
+        y: -10,
+        filter: 'blur(6px)',
+        duration: 0.6,
+        ease: 'power2.in',
+        onComplete: cb,
+      });
+    } else {
+      cb();
+    }
+  };
+
   return (
     <div ref={containerRef} className="destination-ui-container">
       <div className="destination-content">
@@ -37,15 +53,23 @@ export const DestinationUI: React.FC<DestinationUIProps> = ({ sceneId, onRestart
 
         <div className="destination-actions">
           {isShore && onRise && (
-            <button onClick={onRise} className="destination-rise-btn" aria-label="Rise into clouds">
+            <button
+              onClick={() => handleAction(onRise)}
+              className="destination-rise-btn"
+              aria-label="Rise into clouds"
+            >
               <span className="rise-indicator">↑</span>
               <span className="rise-label">RISE</span>
             </button>
           )}
 
-          <button onClick={onRestart} className="destination-restart-btn" aria-label="Loop Journey">
-            <span className="restart-icon">↺</span>
-            <span className="restart-label">begin anew</span>
+          <button
+            onClick={() => handleAction(onRestart)}
+            className="destination-restart-btn"
+            aria-label={isShore ? 'Loop Journey' : 'Ascend to Ocean'}
+          >
+            <span className="restart-icon">{isShore ? '↺' : '↑'}</span>
+            <span className="restart-label">{isShore ? 'begin anew' : 'ascend to ocean'}</span>
           </button>
         </div>
       </div>

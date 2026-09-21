@@ -7,6 +7,8 @@ export interface RenderState {
   environmentA: EnvironmentId;
   environmentB: EnvironmentId;
   transitionProgress: number; // 0.0 to 1.0
+  revealStart: number;
+  revealEnd: number;
   transitionRecipe: TransitionRecipe;
   cameraOffset: { x: number; y: number };
   cameraZoom: number;
@@ -29,9 +31,14 @@ export class WebGLRenderer {
   private uTimeLoc: WebGLUniformLocation | null = null;
   private uTexALoc: WebGLUniformLocation | null = null;
   private uTexBLoc: WebGLUniformLocation | null = null;
+  private uTexTransLoc: WebGLUniformLocation | null = null;
   private uRatioALoc: WebGLUniformLocation | null = null;
   private uRatioBLoc: WebGLUniformLocation | null = null;
+  private uRatioTransLoc: WebGLUniformLocation | null = null;
+  private uHasTransVideoLoc: WebGLUniformLocation | null = null;
   private uTransitionProgressLoc: WebGLUniformLocation | null = null;
+  private uRevealStartLoc: WebGLUniformLocation | null = null;
+  private uRevealEndLoc: WebGLUniformLocation | null = null;
   private uTransitionRecipeLoc: WebGLUniformLocation | null = null;
   private uCameraOffsetLoc: WebGLUniformLocation | null = null;
   private uCameraZoomLoc: WebGLUniformLocation | null = null;
@@ -56,6 +63,8 @@ export class WebGLRenderer {
     environmentA: 'ocean',
     environmentB: 'underwater',
     transitionProgress: 0.0,
+    revealStart: 0.65,
+    revealEnd: 0.95,
     transitionRecipe: 'none',
     cameraOffset: { x: 0, y: 0 },
     cameraZoom: 1.0,
@@ -146,9 +155,14 @@ export class WebGLRenderer {
     this.uTimeLoc = gl.getUniformLocation(p, 'u_time');
     this.uTexALoc = gl.getUniformLocation(p, 'u_tex_a');
     this.uTexBLoc = gl.getUniformLocation(p, 'u_tex_b');
+    this.uTexTransLoc = gl.getUniformLocation(p, 'u_tex_trans');
     this.uRatioALoc = gl.getUniformLocation(p, 'u_ratio_a');
     this.uRatioBLoc = gl.getUniformLocation(p, 'u_ratio_b');
+    this.uRatioTransLoc = gl.getUniformLocation(p, 'u_ratio_trans');
+    this.uHasTransVideoLoc = gl.getUniformLocation(p, 'u_has_trans_video');
     this.uTransitionProgressLoc = gl.getUniformLocation(p, 'u_transition_progress');
+    this.uRevealStartLoc = gl.getUniformLocation(p, 'u_reveal_start');
+    this.uRevealEndLoc = gl.getUniformLocation(p, 'u_reveal_end');
     this.uTransitionRecipeLoc = gl.getUniformLocation(p, 'u_transition_recipe');
     this.uCameraOffsetLoc = gl.getUniformLocation(p, 'u_camera_offset');
     this.uCameraZoomLoc = gl.getUniformLocation(p, 'u_camera_zoom');
@@ -233,6 +247,7 @@ export class WebGLRenderer {
     this.mediaManager.updateFrame(this.state.environmentA);
     if (this.state.transitionProgress > 0.0) {
       this.mediaManager.updateFrame(this.state.environmentB);
+      this.mediaManager.updateTransitionFrame();
     }
 
     gl.useProgram(this.program);
@@ -251,8 +266,18 @@ export class WebGLRenderer {
     gl.uniform1i(this.uTexBLoc, 1);
     gl.uniform1f(this.uRatioBLoc, this.mediaManager.getAspectRatio(this.state.environmentB));
 
-    // Transition progress & recipe
+    // Dedicated transition video texture (TEXTURE2)
+    const hasTrans = this.mediaManager.hasActiveTransition() ? 1 : 0;
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.mediaManager.getTransitionTexture());
+    gl.uniform1i(this.uTexTransLoc, 2);
+    gl.uniform1f(this.uRatioTransLoc, this.mediaManager.getTransitionAspectRatio());
+    gl.uniform1i(this.uHasTransVideoLoc, hasTrans);
+
+    // Transition progress, reveal window & recipe
     gl.uniform1f(this.uTransitionProgressLoc, this.state.transitionProgress);
+    gl.uniform1f(this.uRevealStartLoc, this.state.revealStart);
+    gl.uniform1f(this.uRevealEndLoc, this.state.revealEnd);
     
     let recipeInt = 0;
     switch (this.state.transitionRecipe) {
@@ -262,6 +287,7 @@ export class WebGLRenderer {
       case 'rainfall': recipeInt = 4; break;
       case 'ocean-return': recipeInt = 5; break;
       case 'deep-descent': recipeInt = 6; break;
+      case 'deep-return': recipeInt = 7; break;
       default: recipeInt = 0;
     }
     gl.uniform1i(this.uTransitionRecipeLoc, recipeInt);

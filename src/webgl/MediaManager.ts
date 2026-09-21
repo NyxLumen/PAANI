@@ -238,7 +238,154 @@ export class MediaManager {
     return this.slots.get(id)?.aspectRatio ?? (16 / 9);
   }
 
+  // --- Transition Video Management ---
+  private transitionSlot: {
+    videoElement: HTMLVideoElement | null;
+    texture: WebGLTexture;
+    aspectRatio: number;
+    isReady: boolean;
+    lastVideoTime: number;
+  } | null = null;
+
+  public async preloadTransitionVideo(src: string, maxWaitMs: number = 1500): Promise<boolean> {
+    // Teardown any existing transition video
+    this.clearTransition();
+
+    const gl = this.gl;
+    const tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      1,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      new Uint8Array([8, 20, 36, 255])
+    );
+
+    const video = document.createElement('video');
+    video.muted = true;
+    video.loop = false;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.crossOrigin = 'anonymous';
+
+    this.transitionSlot = {
+      videoElement: video,
+      texture: tex,
+      aspectRatio: 16 / 9,
+      isReady: false,
+      lastVideoTime: -1,
+    };
+
+    return new Promise<boolean>((resolve) => {
+      let resolved = false;
+      const onDone = (success: boolean) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
+        video.removeEventListener('canplay', handleCanPlay);
+        video.removeEventListener('error', handleError);
+        if (success && this.transitionSlot) {
+          this.transitionSlot.isReady = true;
+          this.transitionSlot.aspectRatio =
+            video.videoWidth && video.videoHeight
+              ? video.videoWidth / video.videoHeight
+              : 16 / 9;
+          resolve(true);
+        } else {
+          this.clearTransition();
+          resolve(false);
+        }
+      };
+
+      const handleCanPlay = () => onDone(true);
+      const handleError = () => onDone(false);
+
+      const timer = setTimeout(() => {
+        if (video.readyState >= 2) {
+          onDone(true);
+        } else {
+          console.warn(`[PĀNI Transition] Timeout preloading ${src}, falling back.`);
+          onDone(false);
+        }
+      }, maxWaitMs);
+
+      video.addEventListener('canplay', handleCanPlay, { once: true });
+      video.addEventListener('error', handleError, { once: true });
+      video.src = src;
+      video.load();
+    });
+  }
+
+  public playTransition(): void {
+    if (this.transitionSlot?.videoElement) {
+      this.transitionSlot.videoElement.currentTime = 0;
+      this.transitionSlot.videoElement.play().catch(() => {});
+    }
+  }
+
+  public hasActiveTransition(): boolean {
+    return !!(this.transitionSlot && this.transitionSlot.isReady);
+  }
+
+  public getTransitionTexture(): WebGLTexture {
+    return this.transitionSlot?.texture ?? this.default1x1Texture;
+  }
+
+  public getTransitionAspectRatio(): number {
+    return this.transitionSlot?.aspectRatio ?? (16 / 9);
+  }
+
+  public updateTransitionFrame(): void {
+    const slot = this.transitionSlot;
+    if (!slot || !slot.isReady || !slot.videoElement) return;
+    const vid = slot.videoElement;
+
+    if (vid.readyState >= 2) {
+      if (vid.currentTime === slot.lastVideoTime) return;
+      slot.lastVideoTime = vid.currentTime;
+
+      const gl = this.gl;
+      gl.bindTexture(gl.TEXTURE_2D, slot.texture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        vid
+      );
+    }
+  }
+
+  public clearTransition(): void {
+    if (this.transitionSlot) {
+      if (this.transitionSlot.videoElement) {
+        this.transitionSlot.videoElement.pause();
+        this.transitionSlot.videoElement.removeAttribute('src');
+        this.transitionSlot.videoElement.load();
+        this.transitionSlot.videoElement = null;
+      }
+      const texToDelete = this.transitionSlot.texture;
+      this.transitionSlot = null;
+      // Delay GL texture deletion by one tick to ensure in-flight render calls never bind a deleted texture
+      setTimeout(() => {
+        this.gl.deleteTexture(texToDelete);
+      }, 50);
+    }
+  }
+
   public destroy(): void {
+    this.clearTransition();
     for (const slot of this.slots.values()) {
       if (slot.videoElement) {
         slot.videoElement.pause();

@@ -24,7 +24,8 @@ export type TransitionRecipe =
   | 'atmospheric'
   | 'rainfall'
   | 'ocean-return'
-  | 'deep-descent';
+  | 'deep-descent'
+  | 'deep-return';
 
 export interface EnvironmentAsset {
   video: string;
@@ -47,4 +48,23 @@ export interface SceneConfig {
     holdDuration: number;
   };
   choices?: SceneChoice[];
+}
+
+export type TransitionId =
+  | 'ocean-to-underwater'
+  | 'shore-to-ascent'
+  | 'clouds-to-rain'
+  | 'rain-to-ocean'
+  | 'deep-to-ocean'
+  | 'underwater-to-deep';
+
+export interface TransitionConfig {
+  id: TransitionId;
+  fromScene: SceneId;
+  toScene: SceneId;
+  videoSrc?: string;
+  fallbackRecipe: TransitionRecipe;
+  revealStart: number; // normalized progress (0.0 - 1.0) when destination begins appearing
+  revealEnd: number;   // normalized progress (0.0 - 1.0) when destination reaches 100%
+  maxWaitMs: number;
 }
