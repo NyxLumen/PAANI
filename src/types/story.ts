@@ -19,6 +19,7 @@ export type EnvironmentId =
 
 export type TransitionRecipe =
   | 'none'
+  | 'crossBlur'
   | 'surface-dive'
   | 'evaporation'
   | 'atmospheric'

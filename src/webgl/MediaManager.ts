@@ -1,4 +1,5 @@
 import { EnvironmentAsset, EnvironmentId } from '../types/story';
+import { AudioManager } from '../audio/AudioManager';
 
 export interface MediaSlot {
   id: EnvironmentId;
@@ -16,6 +17,7 @@ export class MediaManager {
   private gl: WebGLRenderingContext;
   private slots: Map<EnvironmentId, MediaSlot> = new Map();
   private default1x1Texture: WebGLTexture;
+  private loopVeilMap: Map<EnvironmentId, number> = new Map();
 
   constructor(gl: WebGLRenderingContext) {
     this.gl = gl;
@@ -201,6 +203,28 @@ export class MediaManager {
         vid.play().catch(() => {});
       }
 
+      // Loop-bridging calculation (seamless softening around wrap point)
+      if (vid.duration && Number.isFinite(vid.duration) && vid.duration > 1.0) {
+        const d = vid.duration;
+        const t = vid.currentTime;
+        let veil = 0.0;
+        const preWindow = 0.45;  // 450ms before end: begin softening
+        const postWindow = 0.35; // 350ms after restart: restore sharpness
+
+        if (t >= d - preWindow) {
+          const frac = (t - (d - preWindow)) / preWindow;
+          veil = Math.sin(frac * Math.PI * 0.5);
+        } else if (t <= postWindow) {
+          const frac = t / postWindow;
+          veil = 1.0 - Math.sin(frac * Math.PI * 0.5);
+        }
+        veil = Math.max(0.0, Math.min(1.0, veil));
+        this.loopVeilMap.set(id, veil);
+
+        // Smooth loop audio to eliminate clicks or pops
+        AudioManager.getInstance().smoothLoopAudio(vid, veil);
+      }
+
       // Avoid redundant texture uploads when frame hasn't advanced
       if (vid.currentTime === slot.lastVideoTime) return;
       slot.lastVideoTime = vid.currentTime;
@@ -219,11 +243,20 @@ export class MediaManager {
     }
   }
 
+  public getLoopVeil(id: EnvironmentId): number {
+    return this.loopVeilMap.get(id) ?? 0.0;
+  }
+
+  public getVideoElement(id: EnvironmentId): HTMLVideoElement | null {
+    return this.slots.get(id)?.videoElement ?? null;
+  }
+
   public play(id: EnvironmentId): void {
     const slot = this.slots.get(id);
     if (slot?.videoElement && slot.videoElement.paused) {
       slot.videoElement.play().catch(() => {});
     }
+    AudioManager.getInstance().crossfadeToScene(id, slot?.videoElement ?? null);
   }
 
   public getSlot(id: EnvironmentId): MediaSlot | undefined {
@@ -329,6 +362,7 @@ export class MediaManager {
     if (this.transitionSlot?.videoElement) {
       this.transitionSlot.videoElement.currentTime = 0;
       this.transitionSlot.videoElement.play().catch(() => {});
+      AudioManager.getInstance().playTransitionAudio(this.transitionSlot.videoElement);
     }
   }
 
