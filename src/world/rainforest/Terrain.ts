@@ -44,29 +44,38 @@ export class RainforestTerrain {
 
   /**
    * Procedural mathematical height function:
-   * Combines macro terrain swells, riverbed/depression valley, and organic surface mounds.
+   * Combines coastal shoreline slope, macro terrain swells, riverbed/depression valley,
+   * organic surface mounds, and towering perimeter mountain amphitheater ridges.
    */
   public static sampleHeight(x: number, z: number): number {
-    // 1. Macro topography (hills and contours)
-    const macroHills = Math.sin(x * 0.022) * Math.cos(z * 0.018) * 6.5
-                     + Math.sin(x * 0.045 + 1.2) * Math.cos(z * 0.038) * 3.2;
+    // 1. Coastal shoreline slope (South / negative Z slopes into ocean surf)
+    const coastSlope = Math.min(0.0, (z + 2.0) * 0.16);
 
-    // 2. Natural basin / depression where rainwater pools into puddles
+    // 2. Macro topography (hills and contours)
+    const macroHills = Math.sin(x * 0.022) * Math.cos(z * 0.018) * 5.5
+                     + Math.sin(x * 0.045 + 1.2) * Math.cos(z * 0.038) * 2.8;
+
+    // 3. Natural basin / depression where rainwater pools into puddles
     // Distance from center clearing (x=0, z=5)
     const dx = x * 0.04;
     const dz = (z - 5.0) * 0.04;
-    const basin = -Math.exp(-(dx * dx + dz * dz)) * 4.0;
+    const basin = -Math.exp(-(dx * dx + dz * dz)) * 3.8;
 
-    // 3. Meso mounds and root hummocks
+    // 4. Meso mounds and root hummocks
     const meso = Math.sin(x * 0.12 + z * 0.08) * 0.65
                + Math.cos(x * 0.09 - z * 0.14) * 0.45;
 
-    // 4. Micro roughness
+    // 5. Micro roughness
     const micro = Math.sin(x * 0.4) * Math.cos(z * 0.4) * 0.12;
 
-    // Base ground level offset so riverbed basin bottoms out around y = 0.5 - 1.2m
-    const totalHeight = 3.5 + macroHills + basin + meso + micro;
-    return Math.max(totalHeight, 0.4);
+    // 6. Perimeter jungle mountain amphitheater (rises up to 26m at perimeter to block flat horizon)
+    const r = Math.sqrt(x * x + z * z);
+    const perimeterRidge = Math.pow(Math.max(0.0, (r - 40.0) / 60.0), 1.7) * 26.0;
+
+    // Base ground level offset
+    const totalHeight = 3.2 + coastSlope + macroHills + basin + meso + micro + perimeterRidge;
+    // Allow coastline to submerge to -2.0m into the sea
+    return totalHeight;
   }
 
   public getHeightAt(x: number, z: number): number {

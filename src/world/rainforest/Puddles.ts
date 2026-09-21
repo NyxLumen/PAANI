@@ -49,9 +49,9 @@ void main() {
       float dToFront = dist - waveFront;
       
       // High-frequency capillary ripples behind wavefront
-      if (dist < waveFront + 0.3 && dist > 0.01) {
-        float amp = exp(-dist * 1.2) * exp(-rTime * 0.9) * uPuddleRippleEnergies[i] * 0.08;
-        float wave = sin(dToFront * 24.0 - rTime * 12.0) * amp;
+      if (dist < waveFront + 0.5 && dist > 0.01) {
+        float amp = exp(-dist * 0.8) * exp(-rTime * 0.7) * uPuddleRippleEnergies[i] * 0.22;
+        float wave = sin(dToFront * 26.0 - rTime * 14.0) * amp;
         vec2 dir = normalize(diff);
         rippleNormalPerturbation.x += dir.x * wave;
         rippleNormalPerturbation.z += dir.y * wave;
@@ -61,29 +61,33 @@ void main() {
 
   N = normalize(N + rippleNormalPerturbation);
 
-  // Fresnel reflectance (Water IOR 1.333)
-  float F0 = 0.02;
+  // Fresnel reflectance with lifted ambient floor for outdoor skylight
+  float F0 = 0.04;
   float NdotV = max(dot(N, V), 0.0);
-  float fresnel = F0 + (1.0 - F0) * pow(1.0 - NdotV, 5.0);
+  float fresnel = clamp(F0 + (1.0 - F0) * pow(1.0 - NdotV, 3.5), 0.18, 0.98);
 
-  // Reflected sky and canopy colors
+  // Reflected sky, sunbeams, and canopy colors
   vec3 R = reflect(-V, N);
   float RdotL = max(dot(R, L), 0.0);
-  vec3 canopyReflect = mix(vec3(0.08, 0.22, 0.09), vec3(0.25, 0.45, 0.2), R.y * 0.5 + 0.5);
-  vec3 sunReflection = vec3(1.0, 0.95, 0.8) * pow(RdotL, 120.0) * 2.5;
+  vec3 canopyReflect = mix(vec3(0.12, 0.32, 0.15), vec3(0.35, 0.65, 0.38), R.y * 0.5 + 0.5);
+  vec3 sunReflection = vec3(1.0, 0.95, 0.8) * pow(RdotL, 48.0) * 3.5;
+  // Specular glints catching the capillary wave crests
+  float rippleGlint = length(rippleNormalPerturbation) * 2.8 * pow(RdotL, 16.0);
+  sunReflection += vec3(1.0, 0.98, 0.88) * rippleGlint;
+
   vec3 reflectionColor = canopyReflect + sunReflection;
 
-  // Murky rainforest water body tint (tea-colored organic tannins over silt)
-  vec3 deepWaterColor = vec3(0.04, 0.03, 0.02);
-  vec3 shallowWaterColor = vec3(0.08, 0.07, 0.04);
+  // Rich organic rainforest pool tint: clear emerald-tea water over silt
+  vec3 deepWaterColor = vec3(0.06, 0.14, 0.09);
+  vec3 shallowWaterColor = vec3(0.12, 0.24, 0.15);
   
   // Radial depth gradient: edge of puddle is shallower
   float edgeDist = length(vUv - 0.5) * 2.0;
-  float depthFade = smoothstep(0.95, 0.4, edgeDist);
+  float depthFade = smoothstep(0.95, 0.3, edgeDist);
   vec3 waterBodyColor = mix(shallowWaterColor, deepWaterColor, depthFade);
 
   // Organic edge falloff so puddle bleeds smoothly into the mud terrain
-  float puddleAlpha = smoothstep(0.98, 0.75, edgeDist) * 0.94;
+  float puddleAlpha = smoothstep(0.98, 0.75, edgeDist) * 0.95;
 
   vec3 finalColor = mix(waterBodyColor, reflectionColor, fresnel);
 
@@ -126,8 +130,8 @@ export class RainforestPuddles {
     });
 
     this.mesh = new THREE.Mesh(geo, this.material);
-    // Position puddle nestled in the depression basin below the hero leaf drip point
-    this.mesh.position.set(0.2, 0.48, 4.8);
+    // Position puddle nestled directly beneath the hero leaf drip point
+    this.mesh.position.set(0.85, 0.48, 4.0);
   }
 
   public triggerRipple(position: THREE.Vector3, energy: number = 1.0) {

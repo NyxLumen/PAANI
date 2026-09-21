@@ -91,6 +91,9 @@ void main() {
   vec3 rockLichen = vec3(0.09, 0.12, 0.09);
   vec3 rockColor = mix(rockDark, rockLichen, macroDetail);
 
+  // 4. Coastal Tidal Sand & Wet River Stones (Sea boundary)
+  vec3 sandColor = vec3(0.24, 0.20, 0.14) * (0.85 + 0.3 * microDetail);
+
   // Blending weights based on slope and height
   float rockFactor = smoothstep(0.35, 0.65, vSlope);
   float mudFactor = smoothstep(2.5, 0.2, vElevation) * (1.0 - rockFactor);
@@ -98,8 +101,12 @@ void main() {
 
   vec3 baseAlbedo = mudColor * mudFactor + mossColor * mossFactor + rockColor * rockFactor;
 
-  // Wetness modulation: Low areas and mud have higher wet sheen
-  float localWetness = clamp(uWetness + (1.0 - smoothstep(0.0, 3.0, vElevation)) * 0.4, 0.0, 1.0);
+  // Shoreline tidal sand transition towards the coastal surf (negative Z & low elevation)
+  float shoreFactor = smoothstep(1.8, 0.0, vElevation) * smoothstep(8.0, -8.0, vWorldPosition.z);
+  baseAlbedo = mix(baseAlbedo, sandColor, shoreFactor * (1.0 - rockFactor * 0.6));
+
+  // Wetness modulation: Low areas, shore, and mud have higher wet sheen
+  float localWetness = clamp(uWetness + (1.0 - smoothstep(0.0, 3.0, vElevation)) * 0.4 + shoreFactor * 0.3, 0.0, 1.0);
   baseAlbedo *= mix(1.0, 0.72, localWetness); // Wet surfaces are naturally darker/saturated
 
   // Lighting calculations:
@@ -107,28 +114,28 @@ void main() {
   float wrapDiff = max((dot(N, L) + 0.3) / 1.3, 0.0);
   
   // Canopy ambient bounce (tinted emerald green from leaves above)
-  vec3 canopyBounce = vec3(0.04, 0.11, 0.06) * max(N.y, 0.2);
-  vec3 skyAmbient = vec3(0.06, 0.08, 0.10) * max(N.y, 0.0);
+  vec3 canopyBounce = vec3(0.05, 0.14, 0.08) * max(N.y, 0.2);
+  vec3 skyAmbient = vec3(0.08, 0.12, 0.14) * max(N.y, 0.0);
   vec3 sunColor = vec3(1.0, 0.96, 0.85) * 1.8;
 
-  // Specular sheen for wet mud and damp stones
-  float roughness = mix(0.85, 0.15, localWetness * (1.0 - mossFactor * 0.6));
+  // Specular sheen for wet mud, tidal sand, and damp stones
+  float roughness = mix(0.85, 0.12, localWetness * (1.0 - mossFactor * 0.6));
   float NdotH = max(dot(N, H), 0.0);
-  float specPower = mix(8.0, 96.0, 1.0 - roughness);
-  float spec = pow(NdotH, specPower) * mix(0.1, 0.8, localWetness);
+  float specPower = mix(8.0, 120.0, 1.0 - roughness);
+  float spec = pow(NdotH, specPower) * mix(0.1, 0.95, localWetness);
 
   // Fresnel on wet film
-  float fresnel = pow(1.0 - max(dot(N, V), 0.0), 5.0) * localWetness * 0.4;
+  float fresnel = pow(1.0 - max(dot(N, V), 0.0), 5.0) * localWetness * 0.45;
 
   vec3 finalColor = baseAlbedo * (wrapDiff * sunColor + canopyBounce + skyAmbient);
   finalColor += (spec + fresnel) * sunColor;
 
   // Mist and humidity distance fade
   float dist = length(uCameraPosition - vWorldPosition);
-  float mistDensity = 0.0075;
+  float mistDensity = 0.013;
   float mistFactor = 1.0 - exp(-dist * mistDensity);
-  vec3 mistColor = vec3(0.18, 0.28, 0.24); // Humid rainforest teal-green haze
-  finalColor = mix(finalColor, mistColor, clamp(mistFactor, 0.0, 0.85));
+  vec3 mistColor = vec3(0.11, 0.21, 0.16); // Deep humid rainforest teal-green haze
+  finalColor = mix(finalColor, mistColor, clamp(mistFactor, 0.0, 0.92));
 
   // Biome transition blending
   gl_FragColor = vec4(finalColor, uTransitionWeight);

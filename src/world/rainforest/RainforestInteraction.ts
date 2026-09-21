@@ -37,8 +37,8 @@ export class RainforestInteraction {
   }
 
   public start() {
-    this.leafLanding = this.vegetation.getHeroLeafSpinePoint(0.08, 0.22);
-    this.leafTip = this.vegetation.getHeroLeafSpinePoint(0.98, 0.08);
+    this.leafLanding = this.vegetation.getHeroLeafSpinePoint(0.08, 0.35);
+    this.leafTip = this.vegetation.getHeroLeafSpinePoint(0.98, 0.35);
     this.descentStart = this.leafLanding.clone().add(new THREE.Vector3(0.0, 3.8, -0.3));
     this.puddleSurface = new THREE.Vector3(this.leafTip.x, 0.49, this.leafTip.z);
 
@@ -49,6 +49,7 @@ export class RainforestInteraction {
     this.drop.setPosition(this.currentPos);
     this.drop.setImpactSquash(0.0);
     this.drop.setMergeProgress(0.0);
+    this.drop.setSurfaceNormal(this.vegetation.getHeroLeafSpineNormal(0.08));
   }
 
   public reset() {
@@ -93,6 +94,7 @@ export class RainforestInteraction {
         const squash = Math.sin(t * Math.PI) * 0.45;
         this.drop.setImpactSquash(squash);
         this.currentPos.copy(this.leafLanding);
+        this.drop.setSurfaceNormal(this.vegetation.getHeroLeafSpineNormal(0.08));
 
         if (t >= 1.0) {
           this.state = 'SLIDING_ON_LEAF';
@@ -109,14 +111,18 @@ export class RainforestInteraction {
         // Ease along downward slope with realistic acceleration
         const s = t * t * (3.0 - 2.0 * t);
 
-        // Precise spine point on hero leaf
+        // Precise spine point on hero leaf with safe contact normal offset
         const progress = 0.08 + s * 0.90;
-        const spinePos = this.vegetation.getHeroLeafSpinePoint(progress, 0.22);
+        const spinePos = this.vegetation.getHeroLeafSpinePoint(progress, 0.35);
         this.currentPos.copy(spinePos);
 
+        // Set surface normal to leaf normal for physical contact alignment
+        const leafNormal = this.vegetation.getHeroLeafSpineNormal(progress);
+        this.drop.setSurfaceNormal(leafNormal);
+
         // Slight wobbling roll deformation as it glides along leaf cuticle
-        const rollWobble = Math.sin(this.timer * 8.0) * 0.05;
-        this.drop.setImpactSquash(0.08 + rollWobble);
+        const rollWobble = Math.sin(this.timer * 8.0) * 0.04;
+        this.drop.setImpactSquash(0.06 + rollWobble);
         this.drop.setDeformState(0);
 
         if (t >= 1.0) {

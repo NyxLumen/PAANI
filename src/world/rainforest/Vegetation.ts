@@ -48,6 +48,8 @@ export class RainforestVegetation {
       roughness: 0.82,
       metalness: 0.04,
       emissive: new THREE.Color(0x1a2618), // subtle warm mossy bark bounce
+      transparent: true,
+      opacity: 1.0,
     });
 
     // 3. Build Macro Canopy Trees
@@ -88,10 +90,10 @@ export class RainforestVegetation {
   }
 
   /**
-   * Evaluates the precise world-space position along the Hero Leaf's central spine.
+   * Evaluates the precise world-space position and normal along the Hero Leaf's central spine.
    * progress: 0.0 (stem base) to 1.0 (tapered leaf tip).
    */
-  public getHeroLeafSpinePoint(progress: number, offsetNormal: number = 0.26): THREE.Vector3 {
+  public getHeroLeafSpinePoint(progress: number, offsetNormal: number = 0.36): THREE.Vector3 {
     this.heroLeafMesh.updateMatrixWorld(true);
     const p = Math.max(0.0, Math.min(progress, 1.0));
     const localY = p * 3.0;
@@ -101,8 +103,17 @@ export class RainforestVegetation {
     const slope = -2.2 * Math.pow(Math.max(p, 0.001), 1.2) * 0.85 / 3.0;
     const localNormal = new THREE.Vector3(0, -slope, 1.0).normalize();
 
-    const localPos = new THREE.Vector3(0, localY, localZ).add(localNormal.multiplyScalar(offsetNormal));
+    const localPos = new THREE.Vector3(0, localY, localZ).add(localNormal.clone().multiplyScalar(offsetNormal));
     return this.heroLeafMesh.localToWorld(localPos);
+  }
+
+  public getHeroLeafSpineNormal(progress: number): THREE.Vector3 {
+    this.heroLeafMesh.updateMatrixWorld(true);
+    const p = Math.max(0.0, Math.min(progress, 1.0));
+    const slope = -2.2 * Math.pow(Math.max(p, 0.001), 1.2) * 0.85 / 3.0;
+    const localNormal = new THREE.Vector3(0, -slope, 1.0).normalize();
+    const normalMatrix = new THREE.Matrix3().getNormalMatrix(this.heroLeafMesh.matrixWorld);
+    return localNormal.applyMatrix3(normalMatrix).normalize();
   }
 
   /**
@@ -212,17 +223,22 @@ export class RainforestVegetation {
       { x: -28, z: -2, scale: 1.7, h: 26 },
     ];
 
-    const trunkGeo = new THREE.CylinderGeometry(0.45, 1.4, 24, 12, 16);
-    trunkGeo.translate(0, 12, 0);
+    const trunkGeo = new THREE.CylinderGeometry(0.45, 1.8, 32, 16, 24);
+    trunkGeo.translate(0, 10, 0); // Base extends 6m below ground level (y=-6 to y=+26)
 
-    // Buttress root flared base
+    // Natural 5-finned fluted buttress roots anchoring into the terrain
     const pos = trunkGeo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const y = pos.getY(i);
-      if (y < 5.0) {
-        const flare = (1.0 - y / 5.0);
-        pos.setX(i, pos.getX(i) * (1.0 + flare * 2.2));
-        pos.setZ(i, pos.getZ(i) * (1.0 + flare * 2.2));
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      if (y < 6.0) {
+        const flare = Math.max(0.0, (6.0 - y) / 12.0);
+        const angle = Math.atan2(z, x);
+        const fluting = Math.pow(Math.cos(angle * 2.5), 2.0) * 1.5 + 0.5;
+        const scaleMult = 1.0 + flare * fluting * 2.4;
+        pos.setX(i, x * scaleMult);
+        pos.setZ(i, z * scaleMult);
       }
     }
     trunkGeo.computeVertexNormals();
@@ -360,11 +376,28 @@ export class RainforestVegetation {
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geo.setAttribute('scale', new THREE.BufferAttribute(scales, 1));
 
+    // Smooth circular alpha disc texture to prevent square billboard rendering
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+      grad.addColorStop(0.0, 'rgba(255, 255, 255, 1.0)');
+      grad.addColorStop(0.3, 'rgba(210, 255, 190, 0.85)');
+      grad.addColorStop(0.65, 'rgba(120, 240, 95, 0.35)');
+      grad.addColorStop(1.0, 'rgba(80, 200, 60, 0.0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 32, 32);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+
     const mat = new THREE.PointsMaterial({
-      color: 0x88f572,
-      size: 0.08,
+      map: texture,
+      color: 0x98f882,
+      size: 0.12,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.65,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
@@ -399,6 +432,7 @@ export class RainforestVegetation {
     if (heroMat.uniforms) {
       heroMat.uniforms.uTransitionWeight.value = weight;
     }
+    this.trunkMaterial.opacity = weight;
     this.group.visible = weight > 0.001;
   }
 

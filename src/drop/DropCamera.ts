@@ -129,11 +129,11 @@ export class DropCamera {
       this.targetPosition.copy(dropPosition).add(this.leafCamOffset);
       this.desiredLookTarget.copy(dropPosition);
     } else if (this.mode === 'RAINFOREST_PUDDLE') {
-      // Low angle framing the puddle reflection and ripples
-      const puddleCam = new THREE.Vector3(0.95, 1.15, 6.2);
-      const puddleLook = new THREE.Vector3(0.24, 0.48, 5.0);
+      // Low angle cinematic framing of the puddle surface, reflections, and concentric ripples
+      const rippleEpicenter = dropPosition.clone();
+      const puddleCam = rippleEpicenter.clone().add(new THREE.Vector3(0.65, 0.65, 1.45));
       this.targetPosition.copy(puddleCam);
-      this.desiredLookTarget.copy(puddleLook);
+      this.desiredLookTarget.copy(rippleEpicenter);
     } else {
       // 'FOLLOW' or 'UNDERWATER'
       const offset = this.isUnderwater ? this.underwaterOffset : this.airOffset;
