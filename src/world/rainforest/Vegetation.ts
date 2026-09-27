@@ -1,7 +1,47 @@
 import * as THREE from 'three';
 import { foliageVertexShader, foliageFragmentShader } from '../../shaders/rainforest/foliage';
+import { barkVertexShader, barkFragmentShader } from '../../shaders/rainforest/bark';
 import { RainforestTerrain } from './Terrain';
 import { QualityTier } from '../../core/QualityManager';
+
+/**
+ * Deterministic pseudo-random number generator (Mulberry32)
+ * Ensures 100% reproducible procedural trees across all clients and runs without Math.random().
+ */
+class SeededPRNG {
+  private s: number;
+
+  constructor(seed: number) {
+    this.s = seed | 0;
+  }
+
+  public next(): number {
+    this.s |= 0;
+    this.s = (this.s + 0x6d2b79f5) | 0;
+    let t = Math.imul(this.s ^ (this.s >>> 15), 1 | this.s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  public range(min: number, max: number): number {
+    return min + this.next() * (max - min);
+  }
+
+  public int(min: number, max: number): number {
+    return Math.floor(this.range(min, max + 1));
+  }
+}
+
+interface TrunkData {
+  geo: THREE.BufferGeometry;
+  finAngles: number[];
+  baseRadius: number;
+  topRadius: number;
+  leanDir: number;
+  leanAmp: number;
+  curveFreq: number;
+  sCurveAmp: number;
+}
 
 export class RainforestVegetation {
   public group: THREE.Group;
@@ -10,7 +50,7 @@ export class RainforestVegetation {
   public foliageMaterial: THREE.ShaderMaterial;
   public heroLeafMaterial: THREE.ShaderMaterial;
   public canopyMaterial: THREE.ShaderMaterial;
-  public trunkMaterial: THREE.MeshStandardMaterial;
+  public trunkMaterial: THREE.ShaderMaterial;
 
   private isTransitioning: boolean = false;
 
@@ -48,16 +88,22 @@ export class RainforestVegetation {
       },
     });
 
-    // 2. Wet Bark Trunk Material
-    this.trunkMaterial = new THREE.MeshStandardMaterial({
-      color: 0x4a3728,
-      roughness: 0.85,
-      metalness: 0.04,
-      emissive: new THREE.Color(0x142012), // subtle warm mossy bark bounce
+    // 2. Procedural Wet Bark Trunk Material
+    this.trunkMaterial = new THREE.ShaderMaterial({
+      vertexShader: barkVertexShader,
+      fragmentShader: barkFragmentShader,
+      side: THREE.DoubleSide,
       transparent: false,
       depthWrite: true,
       depthTest: true,
-      opacity: 1.0,
+      uniforms: {
+        uTime: { value: 0 },
+        uSunDirection: { value: sunDirection },
+        uCameraPosition: { value: new THREE.Vector3() },
+        uTransitionWeight: { value: 1.0 },
+        uWetness: { value: 0.9 },
+        uWindStrength: { value: 1.0 },
+      },
     });
 
     // 3. Tree Canopy Clump Material
@@ -270,12 +316,33 @@ export class RainforestVegetation {
   }
 
   /**
-   * Procedural trunk geometry with fluted buttress roots and natural curvature.
+   * Procedural trunk geometry with fluted buttress roots, organic curvature, and per-tree variation.
    */
-  private createTreeTrunkGeometry(height: number): THREE.BufferGeometry {
-    const radialSegs = 20;
-    const heightSegs = 32;
-    const totalH = height + 6.0;
+  private createTreeTrunkGeometry(height: number, rng: SeededPRNG): TrunkData {
+    const radialSegs = 28;
+    const heightSegs = 36;
+    const totalH = height + 3.5;
+
+    const leanDir = rng.range(0, Math.PI * 2);
+    const leanAmp = rng.range(0.65, 1.4);
+    const curveFreq = rng.range(0.75, 1.15);
+    const sCurveAmp = rng.range(-0.35, 0.35);
+    const baseRadius = rng.range(1.4, 1.7);
+    const topRadius = rng.range(0.52, 0.70);
+
+    const buttressCount = rng.int(4, 6);
+    const finAngles: number[] = [];
+    const finHeights: number[] = [];
+    const finFlares: number[] = [];
+    const finWidths: number[] = [];
+
+    for (let k = 0; k < buttressCount; k++) {
+      const baseAngle = (k / buttressCount) * Math.PI * 2;
+      finAngles.push(baseAngle + rng.range(-0.22, 0.22));
+      finHeights.push(rng.range(5.5, 9.0));
+      finFlares.push(rng.range(2.4, 3.8));
+      finWidths.push(rng.range(0.35, 0.52));
+    }
 
     const vertices: number[] = [];
     const uvs: number[] = [];
@@ -283,30 +350,39 @@ export class RainforestVegetation {
 
     for (let j = 0; j <= heightSegs; j++) {
       const v = j / heightSegs;
-      const y = -6.0 + v * totalH;
+      const y = -3.5 + v * totalH;
       const t = v;
 
-      // Natural organic curvature/lean
-      const cx = Math.sin(t * Math.PI * 0.85) * 0.9 * t;
-      const cz = Math.cos(t * Math.PI * 0.75) * 0.7 * t;
+      // Natural organic curvature & lean
+      const cx = (Math.sin(t * Math.PI * curveFreq) * leanAmp + Math.sin(t * Math.PI * 2.0) * sCurveAmp) * Math.cos(leanDir) * t;
+      const cz = (Math.sin(t * Math.PI * curveFreq) * leanAmp + Math.sin(t * Math.PI * 2.0) * sCurveAmp) * Math.sin(leanDir) * t;
 
-      // Base radius tapers upward
-      const baseR = 1.45 * (1.0 - t * 0.72) + 0.35;
+      // Tapered cylindrical base radius
+      const rBase = THREE.MathUtils.lerp(baseRadius, topRadius, Math.pow(t, 0.85));
 
       for (let i = 0; i <= radialSegs; i++) {
         const u = i / radialSegs;
         const angle = u * Math.PI * 2;
 
-        let r = baseR;
-        if (y < 6.0) {
-          const flare = Math.max(0.0, (6.0 - y) / 12.0);
-          const fluting = Math.pow(Math.cos(angle * 2.5), 2.0) * 1.8 + 0.3;
-          r += flare * fluting * 2.2;
+        let buttressOffset = 0;
+        for (let k = 0; k < buttressCount; k++) {
+          if (y < finHeights[k]) {
+            const flareProg = Math.max(0.0, (finHeights[k] - y) / (finHeights[k] + 3.5));
+            let dAngle = Math.abs(angle - finAngles[k]);
+            if (dAngle > Math.PI) dAngle = Math.PI * 2 - dAngle;
+            const finHalfWidth = finWidths[k];
+            if (dAngle < finHalfWidth) {
+              const angleWeight = Math.cos((dAngle / finHalfWidth) * (Math.PI * 0.5));
+              buttressOffset += Math.pow(flareProg, 1.35) * finFlares[k] * Math.pow(angleWeight, 2.4);
+            }
+          }
         }
-        r += Math.sin(angle * 6.0 + y * 0.8) * 0.04 * (1.0 - t * 0.5);
+
+        const fluting = Math.sin(angle * 6.0 + y * 0.65) * 0.05 * (1.0 - t * 0.6);
+        const r = rBase + buttressOffset + fluting;
 
         vertices.push(cx + Math.cos(angle) * r, y, cz + Math.sin(angle) * r);
-        uvs.push(u, v * (totalH / 4.0));
+        uvs.push(u, (y + 3.5) / 4.0);
       }
     }
 
@@ -328,15 +404,136 @@ export class RainforestVegetation {
     geo.setIndex(indices);
     geo.computeVertexNormals();
     this.treeGeometries.push(geo);
+
+    return {
+      geo,
+      finAngles,
+      baseRadius,
+      topRadius,
+      leanDir,
+      leanAmp,
+      curveFreq,
+      sCurveAmp,
+    };
+  }
+
+  /**
+   * Surface root extending outward from buttress flare, clinging to the terrain contours.
+   */
+  private createSurfaceRootGeometry(
+    treeX: number,
+    treeZ: number,
+    treeGroundY: number,
+    treeScale: number,
+    finAngle: number,
+    length: number,
+    rng: SeededPRNG
+  ): THREE.BufferGeometry {
+    const segments = 12;
+    const radialSegs = 8;
+    const baseR = 0.34;
+    const tipR = 0.06;
+
+    const points: THREE.Vector3[] = [];
+    const wanderAmp = rng.range(0.35, 0.65);
+    const wanderPhase = rng.range(0, Math.PI * 2);
+
+    for (let k = 0; k <= segments; k++) {
+      const s = k / segments;
+      const dist = 2.2 + s * length;
+      const wander = Math.sin(s * Math.PI * 1.6 + wanderPhase) * wanderAmp * Math.sin(s * Math.PI);
+      const angle = finAngle + wander / dist;
+
+      const localX = Math.cos(angle) * dist;
+      const localZ = Math.sin(angle) * dist;
+
+      const worldX = treeX + localX * treeScale;
+      const worldZ = treeZ + localZ * treeScale;
+      const terrainY = RainforestTerrain.sampleHeight(worldX, worldZ);
+      // Anchor directly to terrain with top half visible
+      const localY = (terrainY - treeGroundY) / treeScale + Math.max(0.02, 0.16 * (1.0 - s));
+
+      points.push(new THREE.Vector3(localX, localY, localZ));
+    }
+
+    const vertices: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+
+    const up = new THREE.Vector3(0, 1, 0);
+
+    for (let j = 0; j <= segments; j++) {
+      const p = points[j];
+      const s = j / segments;
+      const r = THREE.MathUtils.lerp(baseR, tipR, Math.pow(s, 0.75));
+
+      const tangent = new THREE.Vector3();
+      if (j === 0) {
+        tangent.subVectors(points[1], points[0]).normalize();
+      } else if (j === segments) {
+        tangent.subVectors(points[segments], points[segments - 1]).normalize();
+      } else {
+        tangent.subVectors(points[j + 1], points[j - 1]).normalize();
+      }
+
+      let normal = new THREE.Vector3().crossVectors(tangent, up).normalize();
+      if (normal.lengthSq() < 0.001) {
+        normal.set(1, 0, 0);
+      }
+      const binormal = new THREE.Vector3().crossVectors(normal, tangent).normalize();
+
+      for (let i = 0; i <= radialSegs; i++) {
+        const u = i / radialSegs;
+        const theta = u * Math.PI * 2;
+        const cosT = Math.cos(theta);
+        const sinT = Math.sin(theta);
+
+        // Slightly flattened bottom resting on terrain
+        const rx = cosT * r;
+        const ry = sinT * (r * 0.72);
+
+        const vx = p.x + normal.x * rx + binormal.x * ry;
+        const vy = p.y + normal.y * rx + binormal.y * ry;
+        const vz = p.z + normal.z * rx + binormal.z * ry;
+
+        vertices.push(vx, vy, vz);
+        uvs.push(u, s * 3.5);
+      }
+    }
+
+    const stride = radialSegs + 1;
+    for (let j = 0; j < segments; j++) {
+      for (let i = 0; i < radialSegs; i++) {
+        const a = j * stride + i;
+        const b = (j + 1) * stride + i;
+        const c = (j + 1) * stride + (i + 1);
+        const d = j * stride + (i + 1);
+        indices.push(a, b, d);
+        indices.push(b, c, d);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    this.treeGeometries.push(geo);
     return geo;
   }
 
   /**
-   * Procedural branching limb geometry.
+   * Procedural branching limb geometry with organic arching and curvature.
    */
-  private createBranchGeometry(length: number, baseR: number, tipR: number): THREE.BufferGeometry {
+  private createBranchGeometry(
+    length: number,
+    baseR: number,
+    tipR: number,
+    archFactor: number = 0.35,
+    curveDir: number = 0.0
+  ): THREE.BufferGeometry {
     const radialSegs = 10;
-    const heightSegs = 12;
+    const heightSegs = 14;
     const vertices: number[] = [];
     const uvs: number[] = [];
     const indices: number[] = [];
@@ -344,15 +541,15 @@ export class RainforestVegetation {
     for (let j = 0; j <= heightSegs; j++) {
       const t = j / heightSegs;
       const y = t * length;
-      const x = Math.sin(t * Math.PI * 0.4) * (length * 0.35);
-      const z = Math.pow(t, 1.4) * (length * 0.18);
-      const r = THREE.MathUtils.lerp(baseR, tipR, t);
+      const z = Math.sin(t * Math.PI * 0.45) * (length * archFactor);
+      const x = Math.sin(t * Math.PI * 0.8) * (length * 0.12) * curveDir;
+      const r = THREE.MathUtils.lerp(baseR, tipR, Math.pow(t, 0.75));
 
       for (let i = 0; i <= radialSegs; i++) {
         const u = i / radialSegs;
         const angle = u * Math.PI * 2;
         vertices.push(x + Math.cos(angle) * r, y, z + Math.sin(angle) * r);
-        uvs.push(u, t);
+        uvs.push(u, t * (length / 3.0));
       }
     }
 
@@ -423,70 +620,156 @@ export class RainforestVegetation {
   }
 
   /**
-   * Creates large emergent rainforest trees with buttress roots, branches, hanging lianas, and towering umbrella crowns.
+   * Creates large emergent rainforest trees with buttress roots, surface roots, branches, hanging lianas, and towering umbrella crowns.
    */
   private buildTrees() {
     const treePositions = [
-      { x: -14, z: -10, scale: 1.5, h: 26 },
-      { x: 16, z: -8, scale: 1.7, h: 28 },
-      { x: -19, z: 14, scale: 1.4, h: 22 },
-      { x: 15, z: 18, scale: 1.6, h: 25 },
-      { x: -7, z: -24, scale: 1.9, h: 30 },
-      { x: 9, z: -27, scale: 1.8, h: 28 },
-      { x: 26, z: 4, scale: 1.6, h: 24 },
-      { x: -28, z: -2, scale: 1.7, h: 26 },
+      { x: -14, z: -10, scale: 1.5, h: 26, seed: 101 },
+      { x: 16, z: -8, scale: 1.7, h: 28, seed: 202 },
+      { x: -19, z: 14, scale: 1.4, h: 22, seed: 303 },
+      { x: 15, z: 18, scale: 1.6, h: 25, seed: 404 },
+      { x: -7, z: -24, scale: 1.9, h: 30, seed: 505 },
+      { x: 9, z: -27, scale: 1.8, h: 28, seed: 606 },
+      { x: 26, z: 4, scale: 1.6, h: 24, seed: 707 },
+      { x: -28, z: -2, scale: 1.7, h: 26, seed: 808 },
     ];
 
     treePositions.forEach((tp, treeIdx) => {
+      const rng = new SeededPRNG(tp.seed);
       const groundY = RainforestTerrain.sampleHeight(tp.x, tp.z);
       const treeGroup = new THREE.Group();
       treeGroup.position.set(tp.x, groundY, tp.z);
       treeGroup.scale.set(tp.scale, (tp.h / 24) * tp.scale, tp.scale);
 
-      // 1. Procedural fluted trunk
-      const trunkGeo = this.createTreeTrunkGeometry(tp.h);
-      const trunkMesh = new THREE.Mesh(trunkGeo, this.trunkMaterial);
+      // 1. Procedural fluted buttress trunk
+      const trunkData = this.createTreeTrunkGeometry(tp.h, rng);
+      const trunkMesh = new THREE.Mesh(trunkData.geo, this.trunkMaterial);
       trunkMesh.castShadow = true;
       trunkMesh.receiveShadow = true;
       treeGroup.add(trunkMesh);
 
-      // 2. Branch limbs arching outward
-      const branchCount = 3;
-      const forkHeight = tp.h * 0.68;
+      // 2. Surface roots extending outward along terrain
+      const rootCount = rng.int(2, 3);
+      for (let r = 0; r < rootCount; r++) {
+        const finIdx = (r * 2) % trunkData.finAngles.length;
+        const rootAngle = trunkData.finAngles[finIdx];
+        const rootLen = rng.range(5.0, 8.0);
+        const rootGeo = this.createSurfaceRootGeometry(
+          tp.x,
+          tp.z,
+          groundY,
+          tp.scale,
+          rootAngle,
+          rootLen,
+          rng
+        );
+        const rootMesh = new THREE.Mesh(rootGeo, this.trunkMaterial);
+        rootMesh.castShadow = true;
+        rootMesh.receiveShadow = true;
+        treeGroup.add(rootMesh);
+      }
+
+      // 3. Branches: 4 to 6 major branches at staggered heights
+      const branchCount = rng.int(4, 5);
       for (let b = 0; b < branchCount; b++) {
-        const branchAngle = (b / branchCount) * Math.PI * 2 + treeIdx * 0.7;
-        const branchLen = 6.5 + (b % 2) * 1.5;
-        const branchGeo = this.createBranchGeometry(branchLen, 0.42, 0.18);
+        const branchH = tp.h * (0.50 + (b / branchCount) * 0.32 + rng.range(-0.02, 0.03));
+        const t_b = Math.max(0.0, Math.min(1.0, (branchH + 3.5) / (tp.h + 3.5)));
+
+        const cx_b = (Math.sin(t_b * Math.PI * trunkData.curveFreq) * trunkData.leanAmp +
+                      Math.sin(t_b * Math.PI * 2.0) * trunkData.sCurveAmp) *
+                     Math.cos(trunkData.leanDir) * t_b;
+        const cz_b = (Math.sin(t_b * Math.PI * trunkData.curveFreq) * trunkData.leanAmp +
+                      Math.sin(t_b * Math.PI * 2.0) * trunkData.sCurveAmp) *
+                     Math.sin(trunkData.leanDir) * t_b;
+        const r_b = THREE.MathUtils.lerp(trunkData.baseRadius, trunkData.topRadius, Math.pow(t_b, 0.85));
+
+        const branchAngle = (b / branchCount) * Math.PI * 2 + rng.range(-0.30, 0.30) + treeIdx * 0.45;
+        const branchLen = rng.range(6.5, 9.2);
+        const baseR = rng.range(0.38, 0.46);
+        const tipR = rng.range(0.16, 0.22);
+        const archFactor = rng.range(0.28, 0.38);
+        const curveDir = rng.range(-1.0, 1.0);
+
+        const branchGeo = this.createBranchGeometry(branchLen, baseR, tipR, archFactor, curveDir);
         const branchMesh = new THREE.Mesh(branchGeo, this.trunkMaterial);
-        branchMesh.position.set(0, forkHeight, 0);
-        branchMesh.rotation.set(0.65, branchAngle, 0.35);
+
+        const startX = cx_b + Math.cos(branchAngle) * (r_b * 0.65);
+        const startZ = cz_b + Math.sin(branchAngle) * (r_b * 0.65);
+        branchMesh.position.set(startX, branchH, startZ);
+
+        const pitch = rng.range(0.55, 0.75);
+        branchMesh.rotation.set(pitch, branchAngle, rng.range(-0.2, 0.2));
         branchMesh.castShadow = true;
         branchMesh.receiveShadow = true;
         treeGroup.add(branchMesh);
 
-        // 3. Hanging Liana Vines dangling from branch forks
-        const lianaLen = 12.0 + (b % 3) * 3.0;
+        // Branch tip position in treeGroup local space
+        const localTip = new THREE.Vector3(
+          curveDir * branchLen * 0.12,
+          branchLen * 0.88,
+          branchLen * archFactor * 0.95
+        );
+        localTip.applyEuler(branchMesh.rotation);
+        localTip.add(branchMesh.position);
+
+        // 4. Hanging Liana Vines dangling from branch fork
+        const lianaLen = rng.range(12.0, 18.0);
         const lianaGeo = this.createLianaGeometry(lianaLen);
         const lianaMesh = new THREE.Mesh(lianaGeo, this.trunkMaterial);
-        const attachX = Math.sin(branchAngle) * 3.2;
-        const attachZ = Math.cos(branchAngle) * 3.2;
-        lianaMesh.position.set(attachX, forkHeight + 1.2, attachZ);
+        const lianaAttach = new THREE.Vector3(0, branchLen * 0.35, 0);
+        lianaAttach.applyEuler(branchMesh.rotation);
+        lianaAttach.add(branchMesh.position);
+        lianaMesh.position.copy(lianaAttach);
         lianaMesh.castShadow = true;
         treeGroup.add(lianaMesh);
 
-        // 4. Canopy clump at branch tip
-        const branchCanopyGeo = this.createUmbrellaCanopyGeometry(5.2, 2.6);
+        // 5. Canopy clump at branch tip
+        const canopyRadius = rng.range(4.8, 5.8);
+        const canopyThick = rng.range(2.4, 2.9);
+        const branchCanopyGeo = this.createUmbrellaCanopyGeometry(canopyRadius, canopyThick);
         const branchCanopyMesh = new THREE.Mesh(branchCanopyGeo, this.canopyMaterial);
-        const tipX = Math.sin(branchAngle) * (branchLen * 0.85);
-        const tipZ = Math.cos(branchAngle) * (branchLen * 0.85);
-        branchCanopyMesh.position.set(tipX, forkHeight + branchLen * 0.6, tipZ);
+        branchCanopyMesh.position.copy(localTip);
         branchCanopyMesh.castShadow = true;
         branchCanopyMesh.receiveShadow = true;
         treeGroup.add(branchCanopyMesh);
+
+        // 6. Secondary branch split (on 1-2 branches per tree)
+        if (b === 0 || b === 2) {
+          const subBranchLen = rng.range(3.8, 5.0);
+          const subBaseR = baseR * 0.65;
+          const subTipR = tipR * 0.75;
+          const subGeo = this.createBranchGeometry(subBranchLen, subBaseR, subTipR, 0.3, -curveDir);
+          const subMesh = new THREE.Mesh(subGeo, this.trunkMaterial);
+
+          const splitDist = branchLen * 0.52;
+          const splitPos = new THREE.Vector3(0, splitDist, splitDist * archFactor * 0.5);
+          splitPos.applyEuler(branchMesh.rotation);
+          splitPos.add(branchMesh.position);
+
+          subMesh.position.copy(splitPos);
+          const subPitch = pitch + rng.range(-0.15, 0.15);
+          const subAngle = branchAngle + (b === 0 ? 0.65 : -0.65);
+          subMesh.rotation.set(subPitch, subAngle, rng.range(-0.15, 0.15));
+          subMesh.castShadow = true;
+          subMesh.receiveShadow = true;
+          treeGroup.add(subMesh);
+
+          // Sub-branch canopy clump
+          const subTip = new THREE.Vector3(0, subBranchLen * 0.85, subBranchLen * 0.28);
+          subTip.applyEuler(subMesh.rotation);
+          subTip.add(subMesh.position);
+
+          const subCanopyGeo = this.createUmbrellaCanopyGeometry(3.8, 2.0);
+          const subCanopyMesh = new THREE.Mesh(subCanopyGeo, this.canopyMaterial);
+          subCanopyMesh.position.copy(subTip);
+          subCanopyMesh.castShadow = true;
+          subCanopyMesh.receiveShadow = true;
+          treeGroup.add(subCanopyMesh);
+        }
       }
 
-      // 5. Central towering umbrella crown
-      const topCanopyGeo = this.createUmbrellaCanopyGeometry(7.2, 3.4);
+      // 7. Central towering umbrella crown
+      const topCanopyGeo = this.createUmbrellaCanopyGeometry(rng.range(6.8, 7.6), rng.range(3.2, 3.6));
       const topCanopyMesh = new THREE.Mesh(topCanopyGeo, this.canopyMaterial);
       topCanopyMesh.position.set(0, tp.h - 1.2, 0);
       topCanopyMesh.castShadow = true;
@@ -636,6 +919,11 @@ export class RainforestVegetation {
       this.canopyMaterial.uniforms.uCameraPosition.value.copy(cameraPos);
     }
 
+    if (this.trunkMaterial && this.trunkMaterial.uniforms) {
+      this.trunkMaterial.uniforms.uTime.value = time;
+      this.trunkMaterial.uniforms.uCameraPosition.value.copy(cameraPos);
+    }
+
     // Drift spore motes gently in warm thermal currents
     const posAttr = this.sporeParticles.geometry.attributes.position;
     for (let i = 0; i < posAttr.count; i++) {
@@ -653,6 +941,9 @@ export class RainforestVegetation {
     }
     if (this.canopyMaterial && this.canopyMaterial.uniforms) {
       this.canopyMaterial.uniforms.uTransitionWeight.value = weight;
+    }
+    if (this.trunkMaterial && this.trunkMaterial.uniforms) {
+      this.trunkMaterial.uniforms.uTransitionWeight.value = weight;
     }
     this.trunkMaterial.opacity = weight;
     this.group.visible = weight > 0.001;
@@ -682,6 +973,11 @@ export class RainforestVegetation {
   }
 
   public setQualityTier(tier: QualityTier) {
+    if (this.trunkMaterial && this.trunkMaterial.uniforms) {
+      this.trunkMaterial.uniforms.uWetness.value =
+        tier === 'LOW' ? 0.5 : tier === 'MEDIUM' ? 0.75 : tier === 'HIGH' ? 0.88 : 0.95;
+    }
+
     if (tier === 'LOW') {
       this.broadleafInstanced.count = 80;
       this.fernInstanced.count = 100;
