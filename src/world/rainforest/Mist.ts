@@ -49,18 +49,16 @@ void main() {
   float miePhase = pow(VdotL, 4.0) * 1.5 + 0.5;
 
   // Longitudinal ray attenuation: bright near top canopy, softly dissipates toward forest floor
-  // uv.y = 0 at top, 1 at bottom
-  float lengthFade = smoothstep(0.0, 0.2, vUv.y) * smoothstep(1.0, 0.4, vUv.y);
+  float lengthFade = smoothstep(0.02, 0.35, vUv.y) * smoothstep(1.0, 0.60, vUv.y);
 
   // Radial soft edge: beam softens smoothly toward lateral edges
-  float radialEdge = sin(vUv.x * 3.14159265);
-  radialEdge = pow(radialEdge, 1.8);
+  float radialEdge = pow(sin(vUv.x * 3.14159265), 2.2);
 
   // Dynamic dappled shadow animation (leaves rustling above)
   float rayNoise = noise(vec2(vUv.x * 4.0 + uTime * 0.12, vUv.y * 2.5 - uTime * 0.18));
 
-  // Golden sunbeam color with subtle warm humidity glow
-  vec3 beamColor = vec3(1.0, 0.94, 0.78);
+  // Warm golden sunbeam color with subtle warm humidity glow
+  vec3 beamColor = vec3(1.0, 0.92, 0.72) * 0.85;
 
   float alpha = lengthFade * radialEdge * (0.65 + 0.35 * rayNoise) * miePhase * uIntensity;
 
@@ -230,9 +228,14 @@ export class RainforestMist {
 
   public setQualityTier(tier: QualityTier) {
     if (tier === 'LOW') {
-      this.godRayMaterial.uniforms.uIntensity.value = 0.2;
+      this.godRayMaterial.uniforms.uIntensity.value = 0.06;
+    } else if (tier === 'MEDIUM') {
+      this.godRayMaterial.uniforms.uIntensity.value = 0.09;
+    } else if (tier === 'HIGH') {
+      this.godRayMaterial.uniforms.uIntensity.value = 0.12;
     } else {
-      this.godRayMaterial.uniforms.uIntensity.value = 0.42;
+      // ULTRA
+      this.godRayMaterial.uniforms.uIntensity.value = 0.15;
     }
   }
 

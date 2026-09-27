@@ -1,4 +1,4 @@
-export type QualityTier = 'HIGH' | 'MEDIUM' | 'LOW';
+export type QualityTier = 'ULTRA' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 export interface QualitySettings {
   tier: QualityTier;
@@ -7,9 +7,21 @@ export interface QualitySettings {
   underwaterParticles: number;
   enableBloom: boolean;
   causticResolution: number;
+  shadowMapSize: number;
+  enablePostProcessing: boolean;
 }
 
 const SETTINGS_MAP: Record<QualityTier, QualitySettings> = {
+  ULTRA: {
+    tier: 'ULTRA',
+    pixelRatio: 2.0,
+    oceanSubdivisions: 192,
+    underwaterParticles: 1800,
+    enableBloom: true,
+    causticResolution: 1024,
+    shadowMapSize: 2048,
+    enablePostProcessing: true,
+  },
   HIGH: {
     tier: 'HIGH',
     pixelRatio: 1.5,
@@ -17,6 +29,8 @@ const SETTINGS_MAP: Record<QualityTier, QualitySettings> = {
     underwaterParticles: 1000,
     enableBloom: true,
     causticResolution: 512,
+    shadowMapSize: 1024,
+    enablePostProcessing: true,
   },
   MEDIUM: {
     tier: 'MEDIUM',
@@ -25,6 +39,8 @@ const SETTINGS_MAP: Record<QualityTier, QualitySettings> = {
     underwaterParticles: 500,
     enableBloom: true,
     causticResolution: 256,
+    shadowMapSize: 512,
+    enablePostProcessing: true,
   },
   LOW: {
     tier: 'LOW',
@@ -33,6 +49,8 @@ const SETTINGS_MAP: Record<QualityTier, QualitySettings> = {
     underwaterParticles: 250,
     enableBloom: false,
     causticResolution: 128,
+    shadowMapSize: 0,
+    enablePostProcessing: false,
   },
 };
 
@@ -48,7 +66,7 @@ export class QualityManager {
   public fps: number = 60;
   public frameTimeMs: number = 16.6;
 
-  constructor(initialTier: QualityTier = 'HIGH') {
+  constructor(initialTier: QualityTier = 'ULTRA') {
     this.currentTier = initialTier;
   }
 
@@ -98,19 +116,21 @@ export class QualityManager {
 
     // Hysteresis threshold checking:
     // Drop tier if average frame time > 22ms for ~2.5s (150 frames)
-    if (avgMs > 22) {
+    if (avgMs > 24) {
       this.sustainedBadFrames++;
       this.sustainedGoodFrames = 0;
-      if (this.sustainedBadFrames > 120) {
-        if (this.currentTier === 'HIGH') {
+      if (this.sustainedBadFrames > 150) {
+        if (this.currentTier === 'ULTRA') {
+          this.setTier('HIGH');
+        } else if (this.currentTier === 'HIGH') {
           this.setTier('MEDIUM');
         } else if (this.currentTier === 'MEDIUM') {
           this.setTier('LOW');
         }
         this.sustainedBadFrames = 0;
       }
-    } else if (avgMs < 15) {
-      // Upgrade tier only if frame time is super clean (<15ms) for >8s (480 frames)
+    } else if (avgMs < 11) {
+      // Upgrade tier only if frame time is extremely smooth (<11ms = >90 FPS) for >8s (480 frames)
       this.sustainedGoodFrames++;
       this.sustainedBadFrames = 0;
       if (this.sustainedGoodFrames > 480) {
@@ -118,6 +138,8 @@ export class QualityManager {
           this.setTier('MEDIUM');
         } else if (this.currentTier === 'MEDIUM') {
           this.setTier('HIGH');
+        } else if (this.currentTier === 'HIGH') {
+          this.setTier('ULTRA');
         }
         this.sustainedGoodFrames = 0;
       }

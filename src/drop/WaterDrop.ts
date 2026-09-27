@@ -14,7 +14,7 @@ export class WaterDrop {
   private dummy = new THREE.Object3D();
 
   constructor(sunDirection: THREE.Vector3) {
-    const geometry = new THREE.SphereGeometry(this.radius, 96, 64);
+    const geometry = new THREE.SphereGeometry(this.radius, 128, 96);
 
     this.material = new THREE.ShaderMaterial({
       vertexShader: dropVertexShader,
@@ -30,9 +30,10 @@ export class WaterDrop {
         uSurfaceNormal: { value: new THREE.Vector3(0, 1, 0) },
         uMergeProgress: { value: 0.0 },
         uWaterHeight: { value: 0.0 },
+        uRainforestWeight: { value: 0.0 },
       },
       transparent: true,
-      depthWrite: true,
+      depthWrite: false,
       depthTest: true,
     });
 
@@ -92,6 +93,10 @@ export class WaterDrop {
 
   public setWaterHeight(height: number) {
     this.material.uniforms.uWaterHeight.value = height;
+  }
+
+  public setRainforestWeight(weight: number) {
+    this.material.uniforms.uRainforestWeight.value = weight;
   }
 
   public emitBubble(pos: THREE.Vector3) {

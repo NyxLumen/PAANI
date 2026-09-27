@@ -71,7 +71,20 @@ export class Experience {
 
     this.sunLight = new THREE.DirectionalLight(0xfffaed, 2.2);
     this.sunLight.position.copy(sunDir).multiplyScalar(100);
+    this.sunLight.castShadow = true;
+    this.sunLight.shadow.mapSize.width = 2048;
+    this.sunLight.shadow.mapSize.height = 2048;
+    this.sunLight.shadow.camera.near = 0.5;
+    this.sunLight.shadow.camera.far = 160;
+    const shadowFrustum = 32;
+    this.sunLight.shadow.camera.left = -shadowFrustum;
+    this.sunLight.shadow.camera.right = shadowFrustum;
+    this.sunLight.shadow.camera.top = shadowFrustum;
+    this.sunLight.shadow.camera.bottom = -shadowFrustum;
+    this.sunLight.shadow.bias = -0.0001;
+    this.sunLight.shadow.normalBias = 0.02;
     this.scene.add(this.sunLight);
+    this.scene.add(this.sunLight.target);
 
     // 3. Sky
     this.sky = new Sky();
@@ -232,7 +245,18 @@ export class Experience {
 
     // 5. Update Sky & Underwater Atmosphere
     this.sky.update(time);
+    this.sky.setRainforestWeight(this.rainforest.getTransitionWeight());
+    this.sky.mesh.visible = !this.camera.isUnderwater;
+    this.drop.setRainforestWeight(this.rainforest.getTransitionWeight());
     this.underwater.update(time, delta, this.camera.isUnderwater, this.camera.instance.position);
+
+    // Track sun shadow target with drop position
+    const dropPos = this.drop.getPosition();
+    if (this.rainforest.getTransitionWeight() > 0.5) {
+      this.sunLight.target.position.set(dropPos.x * 0.5, Math.max(dropPos.y, 2.0), dropPos.z * 0.5 + 2.0);
+    } else {
+      this.sunLight.target.position.set(dropPos.x, dropPos.y, dropPos.z);
+    }
 
     // 6. Dynamic Fog & Environmental Lighting Transition
     if (this.camera.isUnderwater) {

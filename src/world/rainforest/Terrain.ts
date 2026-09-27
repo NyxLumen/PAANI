@@ -104,11 +104,15 @@ export class RainforestTerrain {
   }
 
   public setQualityTier(tier: QualityTier) {
-    // In low tier, wetness and specular complexity can be trimmed
     if (tier === 'LOW') {
       this.material.uniforms.uWetness.value = 0.5;
+    } else if (tier === 'MEDIUM') {
+      this.material.uniforms.uWetness.value = 0.75;
+    } else if (tier === 'HIGH') {
+      this.material.uniforms.uWetness.value = 0.88;
     } else {
-      this.material.uniforms.uWetness.value = 0.85;
+      // ULTRA
+      this.material.uniforms.uWetness.value = 0.95;
     }
   }
 

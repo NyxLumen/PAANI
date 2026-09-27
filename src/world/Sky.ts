@@ -15,6 +15,7 @@ export class Sky {
       uniforms: {
         uSunDirection: { value: this.sunDirection },
         uTime: { value: 0 },
+        uRainforestWeight: { value: 0.0 },
       },
       side: THREE.BackSide,
       depthWrite: false,
@@ -27,6 +28,10 @@ export class Sky {
 
   public update(time: number) {
     this.material.uniforms.uTime.value = time;
+  }
+
+  public setRainforestWeight(weight: number) {
+    this.material.uniforms.uRainforestWeight.value = weight;
   }
 
   public destroy() {

@@ -20,6 +20,8 @@ export class DropCamera {
   private targetPosition = new THREE.Vector3();
   private currentLookTarget = new THREE.Vector3(0, 0.25, -18.0);
   private desiredLookTarget = new THREE.Vector3(0, 0.25, -18.0);
+  private posVelocity = new THREE.Vector3();
+  private lookVelocity = new THREE.Vector3();
 
   // Opening framing: low above water (ocean ~60%, sky ~40%)
   private openingCamPos = new THREE.Vector3(0, 0.72, 4.6);
@@ -32,8 +34,6 @@ export class DropCamera {
   // Rainforest framing targets
   private canopyCamPos = new THREE.Vector3(-3.5, 12.0, 14.0);
   private canopyLookAt = new THREE.Vector3(2.0, 16.0, -2.0);
-
-  private leafCamOffset = new THREE.Vector3(0.65, 0.45, 1.45);
 
   private ocean: Ocean;
   private revealProgress = 0.0;
@@ -60,6 +60,14 @@ export class DropCamera {
   }
 
   public setMode(mode: CameraCinematicMode) {
+    if (this.mode === 'RAINFOREST_CANOPY' && mode === 'RAINFOREST_LEAF') {
+      // Intentional cinematic film cut from high canopy establishing shot to intimate macro leaf lens
+      this.instance.position.set(0.95, 4.30, 6.20);
+      this.currentLookTarget.set(0.0, 3.85, 3.75);
+      this.instance.lookAt(this.currentLookTarget);
+      this.posVelocity.set(0, 0, 0);
+      this.lookVelocity.set(0, 0, 0);
+    }
     this.mode = mode;
     this.transitionTimer = 0.0;
   }
@@ -71,9 +79,13 @@ export class DropCamera {
     this.isUnderwater = false;
     this.surfaceCrossIntensity = 0.0;
     this.transitionTimer = 0.0;
+    this.posVelocity.set(0, 0, 0);
+    this.lookVelocity.set(0, 0, 0);
     this.instance.position.copy(this.openingCamPos);
     this.currentLookTarget.copy(this.openingLookAt);
     this.desiredLookTarget.copy(this.openingLookAt);
+    this.instance.fov = 42.0;
+    this.instance.updateProjectionMatrix();
     this.instance.lookAt(this.currentLookTarget);
   }
 
@@ -125,13 +137,16 @@ export class DropCamera {
       );
       this.desiredLookTarget.copy(this.canopyLookAt);
     } else if (this.mode === 'RAINFOREST_LEAF') {
-      // Tight macro tracking of the hero drop on the leaf
-      this.targetPosition.copy(dropPosition).add(this.leafCamOffset);
-      this.desiredLookTarget.copy(dropPosition);
+      // Cinematic 3/4 macro tracking looking down the hero leaf's spine as the droplet slides towards camera
+      const anchorCam = new THREE.Vector3(0.95, 4.30, 6.20);
+      const dynamicCam = dropPosition.clone().add(new THREE.Vector3(0.65, 0.45, 1.35));
+      this.targetPosition.lerpVectors(anchorCam, dynamicCam, 0.45);
+      const anchorLook = new THREE.Vector3(0.0, 3.85, 3.75);
+      this.desiredLookTarget.lerpVectors(anchorLook, dropPosition, 0.65);
     } else if (this.mode === 'RAINFOREST_PUDDLE') {
       // Low angle cinematic framing of the puddle surface, reflections, and concentric ripples
       const rippleEpicenter = dropPosition.clone();
-      const puddleCam = rippleEpicenter.clone().add(new THREE.Vector3(0.65, 0.65, 1.45));
+      const puddleCam = rippleEpicenter.clone().add(new THREE.Vector3(0.65, 0.55, 1.45));
       this.targetPosition.copy(puddleCam);
       this.desiredLookTarget.copy(rippleEpicenter);
     } else {
@@ -141,18 +156,37 @@ export class DropCamera {
       this.desiredLookTarget.copy(dropPosition);
     }
 
-    // 3. Damped camera follow
-    const posDamping = this.mode === 'OPENING' ? 3.5 : 7.0;
-    const lookDamping = 8.0;
+    // 3. Subtle organic handheld breathing / micro-sway
+    const swayAmp = this.mode === 'RAINFOREST_LEAF' ? 0.005 : 0.012;
+    const swayX = (Math.sin(time * 0.42) * 0.6 + Math.cos(time * 0.85) * 0.4) * swayAmp;
+    const swayY = (Math.cos(time * 0.38) * 0.6 + Math.sin(time * 0.73) * 0.4) * swayAmp;
+    const swayZ = Math.sin(time * 0.31) * (swayAmp * 0.5);
+    const targetWithSway = this.targetPosition.clone().add(new THREE.Vector3(swayX, swayY, swayZ));
 
-    const lerpFactor = 1.0 - Math.exp(-posDamping * delta);
-    this.instance.position.lerp(this.targetPosition, lerpFactor);
+    // 4. Critically damped spring follow
+    const smoothTime = this.mode === 'OPENING' ? 0.45 : 0.22;
+    const lookSmoothTime = 0.18;
 
-    const lookFactor = 1.0 - Math.exp(-lookDamping * delta);
-    this.currentLookTarget.lerp(this.desiredLookTarget, lookFactor);
+    this.smoothDampVector(this.instance.position, targetWithSway, this.posVelocity, smoothTime, delta);
+    this.smoothDampVector(this.currentLookTarget, this.desiredLookTarget, this.lookVelocity, lookSmoothTime, delta);
     this.instance.lookAt(this.currentLookTarget);
 
-    // 4. Physical surface crossing detection
+    // 5. Dynamic FOV adjustments
+    let targetFov = 42.0;
+    if (this.mode === 'OPENING') targetFov = 44.0;
+    else if (this.mode === 'RAINFOREST_LEAF') targetFov = 35.0; // Macro telephoto intimacy
+    else if (this.mode === 'RAINFOREST_CANOPY') targetFov = 46.0; // Grand wide canopy
+    else if (this.mode === 'RAINFOREST_PUDDLE') targetFov = 38.0;
+    else if (this.isUnderwater) targetFov = 40.0;
+    else if (dropPosition.y > 4.0) targetFov = 45.0; // Speed rush in fall
+
+    const fovLerp = 1.0 - Math.exp(-3.5 * delta);
+    if (Math.abs(this.instance.fov - targetFov) > 0.01) {
+      this.instance.fov += (targetFov - this.instance.fov) * fovLerp;
+      this.instance.updateProjectionMatrix();
+    }
+
+    // 6. Physical surface crossing detection
     const isRainforestMode =
       this.mode === 'RAINFOREST_TRANSITION' ||
       this.mode === 'RAINFOREST_CANOPY' ||
@@ -173,5 +207,37 @@ export class DropCamera {
     } else if (this.surfaceCrossIntensity > 0) {
       this.surfaceCrossIntensity = Math.max(0, this.surfaceCrossIntensity - delta * 3.0);
     }
+  }
+
+  /**
+   * Critically damped vector smoothing (SmoothDamp)
+   */
+  private smoothDampVector(
+    current: THREE.Vector3,
+    target: THREE.Vector3,
+    velocity: THREE.Vector3,
+    smoothTime: number,
+    delta: number
+  ) {
+    smoothTime = Math.max(0.0001, smoothTime);
+    const omega = 2.0 / smoothTime;
+    const x = omega * delta;
+    const exp = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x);
+
+    const changeX = current.x - target.x;
+    const changeY = current.y - target.y;
+    const changeZ = current.z - target.z;
+
+    const tempX = (velocity.x + omega * changeX) * delta;
+    const tempY = (velocity.y + omega * changeY) * delta;
+    const tempZ = (velocity.z + omega * changeZ) * delta;
+
+    velocity.x = (velocity.x - omega * tempX) * exp;
+    velocity.y = (velocity.y - omega * tempY) * exp;
+    velocity.z = (velocity.z - omega * tempZ) * exp;
+
+    current.x = target.x + (changeX + tempX) * exp;
+    current.y = target.y + (changeY + tempY) * exp;
+    current.z = target.z + (changeZ + tempZ) * exp;
   }
 }

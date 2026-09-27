@@ -39,8 +39,8 @@ export class RainforestInteraction {
   public start() {
     this.leafLanding = this.vegetation.getHeroLeafSpinePoint(0.08, 0.35);
     this.leafTip = this.vegetation.getHeroLeafSpinePoint(0.98, 0.35);
-    this.descentStart = this.leafLanding.clone().add(new THREE.Vector3(0.0, 3.8, -0.3));
-    this.puddleSurface = new THREE.Vector3(this.leafTip.x, 0.49, this.leafTip.z);
+    this.descentStart = this.leafLanding.clone().add(new THREE.Vector3(0.0, 3.2, -0.4));
+    this.puddleSurface = new THREE.Vector3(this.leafTip.x, 2.58, this.leafTip.z);
 
     this.state = 'DESCENT_TO_LEAF';
     this.timer = 0;
@@ -50,6 +50,12 @@ export class RainforestInteraction {
     this.drop.setImpactSquash(0.0);
     this.drop.setMergeProgress(0.0);
     this.drop.setSurfaceNormal(this.vegetation.getHeroLeafSpineNormal(0.08));
+  }
+
+  public getSlideProgress(): number {
+    if (this.state === 'DESCENT_TO_LEAF' || this.state === 'LEAF_IMPACT_SQUASH') return 0.0;
+    if (this.state === 'SLIDING_ON_LEAF') return Math.min(this.timer / 3.2, 1.0);
+    return 1.0;
   }
 
   public reset() {
@@ -71,7 +77,7 @@ export class RainforestInteraction {
     switch (this.state) {
       case 'DESCENT_TO_LEAF': {
         // Drop falls from canopy toward the broadleaf
-        const duration = 2.4;
+        const duration = 1.8;
         const t = Math.min(this.timer / duration, 1.0);
         // Gravitational acceleration curve
         const easeIn = t * t;
@@ -106,7 +112,7 @@ export class RainforestInteraction {
 
       case 'SLIDING_ON_LEAF': {
         // Droplet glides smoothly down the curved spine of the hero leaf
-        const slideDuration = 3.6;
+        const slideDuration = 3.2;
         const t = Math.min(this.timer / slideDuration, 1.0);
         // Ease along downward slope with realistic acceleration
         const s = t * t * (3.0 - 2.0 * t);
@@ -134,7 +140,7 @@ export class RainforestInteraction {
 
       case 'TIP_ACCUMULATION': {
         // Droplet clings to the tapered leaf tip, stretching under gravity
-        const hangDuration = 1.2;
+        const hangDuration = 1.0;
         const t = Math.min(this.timer / hangDuration, 1.0);
         // Vertical elongation at tip
         const stretch = t * 0.22;

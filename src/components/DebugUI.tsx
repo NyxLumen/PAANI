@@ -138,7 +138,7 @@ export const DebugUI: React.FC<DebugUIProps> = ({
 
         <span className="debug-label">Override Tier:</span>
         <div className="tier-buttons">
-          {(['HIGH', 'MEDIUM', 'LOW'] as QualityTier[]).map((t) => (
+          {(['ULTRA', 'HIGH', 'MEDIUM', 'LOW'] as QualityTier[]).map((t) => (
             <button
               key={t}
               className={`tier-btn ${stats.tier === t ? 'active' : ''}`}

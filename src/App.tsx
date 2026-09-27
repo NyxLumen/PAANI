@@ -24,6 +24,7 @@ export const App: React.FC = () => {
       onCaptionChange: (newCap) => setCaption(newCap),
     });
     experienceRef.current = exp;
+    (window as any).__PAANI_EXPERIENCE__ = exp;
     exp.start();
 
     // Telemetry polling interval for debug panel
@@ -44,6 +45,7 @@ export const App: React.FC = () => {
     return () => {
       clearInterval(statsInterval);
       window.removeEventListener('keydown', handleKeyDown);
+      delete (window as any).__PAANI_EXPERIENCE__;
       exp.destroy();
       experienceRef.current = null;
     };

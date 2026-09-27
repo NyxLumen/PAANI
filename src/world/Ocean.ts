@@ -115,10 +115,14 @@ export class Ocean {
    */
   public getWaterSurfaceAt(x: number, z: number, time: number): WaterSurfaceSample {
     const waves = [
-      { dir: new THREE.Vector2(1.0, 0.4).normalize(), amp: 0.42, wl: 28.0, speed: 1.2, steepness: 0.75 },
-      { dir: new THREE.Vector2(0.6, 0.8).normalize(), amp: 0.22, wl: 14.0, speed: 1.6, steepness: 0.65 },
-      { dir: new THREE.Vector2(-0.4, 0.9).normalize(), amp: 0.11, wl: 6.5, speed: 2.1, steepness: 0.55 },
-      { dir: new THREE.Vector2(0.8, -0.6).normalize(), amp: 0.04, wl: 2.8, speed: 2.8, steepness: 0.45 },
+      { dir: new THREE.Vector2(1.0, 0.35).normalize(),  amp: 0.48,  wl: 34.0, speed: 1.15, steepness: 0.80 },
+      { dir: new THREE.Vector2(0.55, 0.85).normalize(), amp: 0.30,  wl: 22.0, speed: 1.45, steepness: 0.72 },
+      { dir: new THREE.Vector2(-0.45, 0.9).normalize(), amp: 0.18,  wl: 12.0, speed: 2.05, steepness: 0.65 },
+      { dir: new THREE.Vector2(0.85, -0.52).normalize(),amp: 0.11,  wl: 6.5,  speed: 2.65, steepness: 0.58 },
+      { dir: new THREE.Vector2(-0.7, -0.7).normalize(), amp: 0.06,  wl: 3.8,  speed: 3.10, steepness: 0.50 },
+      { dir: new THREE.Vector2(0.2, 0.98).normalize(),  amp: 0.035, wl: 2.2,  speed: 3.60, steepness: 0.45 },
+      { dir: new THREE.Vector2(-0.9, 0.3).normalize(),  amp: 0.020, wl: 1.3,  speed: 4.20, steepness: 0.38 },
+      { dir: new THREE.Vector2(0.3, -0.95).normalize(), amp: 0.012, wl: 0.8,  speed: 4.80, steepness: 0.32 },
     ];
 
     let height = 0;
@@ -128,8 +132,8 @@ export class Ocean {
 
     for (const w of waves) {
       const k = (2 * Math.PI) / w.wl;
-      const c = Math.sqrt(9.8 / k) * w.speed;
-      const f = k * (w.dir.x * x + w.dir.y * z - c * time * 0.4);
+      const c = Math.sqrt(9.81 / k) * w.speed;
+      const f = k * (w.dir.x * x + w.dir.y * z - c * time * 0.38);
       const a = w.amp;
       const q = w.steepness / (k * a * waves.length);
 
