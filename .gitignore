@@ -3,3 +3,7 @@ dist
 .DS_Store
 *.local
 .vercel
+
+# Test logs and ephemeral reports
+tests/test-results/**/*.log
+tests/test-results/reports/

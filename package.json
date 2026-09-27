@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:cinematic": "node tests/verification/verify_cinematic.mjs",
+    "test:qa": "node tests/verification/run_detailed_qa.mjs",
+    "test:prestart": "node tests/verification/verify_prestart_bug.mjs",
+    "test:phase5": "node tests/verification/verify_phase5.mjs",
+    "test:phase6": "node tests/verification/verify_phase6_rainforest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.186.0",
