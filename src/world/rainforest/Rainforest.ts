@@ -51,12 +51,12 @@ export class Rainforest implements Environment {
   }
 
   public update(time: number, delta: number, cameraPos: THREE.Vector3) {
-    if (this.transitionWeight <= 0.0001) return;
-
-    this.terrain.update(time, cameraPos);
-    this.vegetation.update(time, delta, cameraPos);
-    this.puddles.update(time, delta, cameraPos);
-    this.mist.update(time, cameraPos);
+    if (this.transitionWeight > 0.0001 || this.interaction.state !== 'IDLE') {
+      this.terrain.update(time, cameraPos);
+      this.vegetation.update(time, delta, cameraPos);
+      this.puddles.update(time, delta, cameraPos);
+      this.mist.update(time, cameraPos);
+    }
     this.interaction.update(delta);
   }
 

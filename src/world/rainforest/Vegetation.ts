@@ -56,6 +56,8 @@ export class RainforestVegetation {
 
   // Meshes
   private treesGroup: THREE.Group;
+  private midStoryGroup: THREE.Group;
+  private midStoryTrees: THREE.Group[] = [];
   private treeGeometries: THREE.BufferGeometry[] = [];
   private broadleafInstanced: THREE.InstancedMesh;
   private fernInstanced: THREE.InstancedMesh;
@@ -106,14 +108,28 @@ export class RainforestVegetation {
       },
     });
 
-    // 3. Tree Canopy Clump Material
+    // 3. Tree Canopy Clump Material (Phase B Restrained Organic Foliage Palette)
     this.canopyMaterial = this.foliageMaterial.clone();
     delete (this.canopyMaterial as any).defines.USE_INSTANCING;
+    this.canopyMaterial.uniforms.uLeafColorBase = {
+      value: new THREE.Color(0x133416), // Deep humid rainforest green
+    };
+    this.canopyMaterial.uniforms.uLeafColorTranslucent = {
+      value: new THREE.Color(0x386121), // Muted warm olive-gold backlit foliage (no neon!)
+    };
+    this.canopyMaterial.uniforms.uWetness = {
+      value: 0.55, // Restrained wetness to avoid harsh white specular glare
+    };
 
     // 4. Build Macro Canopy Trees
     this.treesGroup = new THREE.Group();
     this.buildTrees();
     this.group.add(this.treesGroup);
+
+    // 5. Build Mid-Story Sub-Canopy Trees (6–15m Layer)
+    this.midStoryGroup = new THREE.Group();
+    this.buildMidStoryTrees();
+    this.group.add(this.midStoryGroup);
 
     // 4. Build Meso Tropical Broadleaves (Monstera / Elephant Ear)
     const broadleafGeo = this.createBroadleafGeometry();
@@ -595,32 +611,165 @@ export class RainforestVegetation {
   }
 
   /**
-   * Layered umbrella foliage crown with organic ruffled margin.
+   * Procedural organic foliage cluster composed of radiating 3D leaf sprays.
+   * Appends spray vertices, UVs, and indices directly into a unified canopy builder.
+   * Replaces individual cluster meshes with unified tree canopy geometries for high WebGL performance.
    */
-  private createUmbrellaCanopyGeometry(radius: number, thickness: number): THREE.BufferGeometry {
-    const geo = new THREE.SphereGeometry(radius, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.62);
-    geo.scale(1.25, thickness / radius, 1.25);
-    const pos = geo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      let x = pos.getX(i);
-      let y = pos.getY(i);
-      let z = pos.getZ(i);
-      const angle = Math.atan2(z, x);
-      const r = Math.sqrt(x * x + z * z);
-      const edgeFactor = Math.pow(r / (radius * 1.25), 2.0);
-      const ripple = (Math.sin(angle * 6.0) * 0.12 + Math.cos(angle * 10.0) * 0.08) * edgeFactor;
-      x *= (1.0 + ripple);
-      z *= (1.0 + ripple);
-      y -= ripple * 0.5;
-      pos.setXYZ(i, x, y, z);
+  private appendFoliageClusterToBuilder(
+    builder: { vertices: number[]; uvs: number[]; indices: number[]; vertexOffset: number },
+    radius: number,
+    height: number,
+    rng: SeededPRNG,
+    sprayCount: number = 8,
+    centerPos: THREE.Vector3 = new THREE.Vector3(),
+    rotEuler?: THREE.Euler
+  ) {
+    const tempVec = new THREE.Vector3();
+
+    for (let k = 0; k < sprayCount; k++) {
+      // Heading angle around cluster with natural asymmetry
+      const azimuth = (k / sprayCount) * Math.PI * 2 + rng.range(-0.25, 0.25);
+      // Elevation angle: upper sprays reach slightly upward (+15 deg), lower sprays droop (-25 deg)
+      const elevPhase = k / sprayCount;
+      const elevation = (Math.sin(elevPhase * Math.PI * 2.0) * 0.32 - 0.15) + rng.range(-0.1, 0.1);
+
+      // Spray origin offset from cluster center in 3D
+      const radialOffset = radius * rng.range(0.2, 0.4);
+      const heightOffset = height * (rng.range(-0.35, 0.35));
+      const ox = Math.cos(azimuth) * radialOffset;
+      const oz = Math.sin(azimuth) * radialOffset;
+      const oy = heightOffset;
+
+      // Spray dimensions
+      const sprayLen = radius * rng.range(0.75, 1.15);
+      const sprayWidth = radius * rng.range(0.45, 0.65);
+
+      // Build coordinate frame for spray orientation in 3D
+      const cosA = Math.cos(azimuth);
+      const sinA = Math.sin(azimuth);
+      const cosE = Math.cos(elevation);
+      const sinE = Math.sin(elevation);
+
+      const fwd = new THREE.Vector3(cosA * cosE, sinE, sinA * cosE).normalize();
+      const up = new THREE.Vector3(0, 1, 0);
+      let right = new THREE.Vector3().crossVectors(fwd, up).normalize();
+      if (right.lengthSq() < 0.001) right.set(1, 0, 0);
+      const localUp = new THREE.Vector3().crossVectors(right, fwd).normalize();
+
+      const uSegs = 4;
+      const vSegs = 5;
+
+      for (let j = 0; j <= vSegs; j++) {
+        const v = j / vSegs; // Progression along spray length (0 base, 1 tip)
+
+        // Leaf spray width envelope: reaches maximum at 45% length, then tapers gracefully to tip
+        const envelope = Math.sin(Math.pow(v, 0.7) * Math.PI) * (1.0 - v * 0.25);
+
+        // Natural edge scalloping / leaflets
+        const scallop = 1.0 + 0.12 * Math.sin(v * Math.PI * 7.0);
+        const curWidth = sprayWidth * envelope * scallop;
+
+        // Gravitational droop along length
+        const droop = -Math.pow(v, 1.85) * (sprayLen * 0.30);
+
+        for (let i = 0; i <= uSegs; i++) {
+          const u = i / uSegs; // Progression across spray width (0 to 1)
+          const lateral = (u - 0.5) * curWidth;
+          // Transversal gutter curl: leaf margins droop slightly relative to center rachis
+          const curl = -Math.pow((u - 0.5) * 2.0, 2.0) * (curWidth * 0.16);
+
+          const distAlong = v * sprayLen;
+          tempVec.set(
+            ox + fwd.x * distAlong + right.x * lateral + localUp.x * (droop + curl),
+            oy + fwd.y * distAlong + right.y * lateral + localUp.y * (droop + curl),
+            oz + fwd.z * distAlong + right.z * lateral + localUp.z * (droop + curl)
+          );
+
+          if (rotEuler) {
+            tempVec.applyEuler(rotEuler);
+          }
+          tempVec.add(centerPos);
+
+          builder.vertices.push(tempVec.x, tempVec.y, tempVec.z);
+          builder.uvs.push(u, v);
+        }
+      }
+
+      const stride = uSegs + 1;
+      for (let j = 0; j < vSegs; j++) {
+        for (let i = 0; i < uSegs; i++) {
+          const a = builder.vertexOffset + j * stride + i;
+          const b = builder.vertexOffset + (j + 1) * stride + i;
+          const c = builder.vertexOffset + (j + 1) * stride + (i + 1);
+          const d = builder.vertexOffset + j * stride + (i + 1);
+          builder.indices.push(a, b, d);
+          builder.indices.push(b, c, d);
+        }
+      }
+
+      builder.vertexOffset += (uSegs + 1) * (vSegs + 1);
     }
+  }
+
+  /**
+   * Procedural slender trunk geometry for mid-story sub-canopy trees (6–15m height layer).
+   */
+  private createSlenderTrunkGeometry(height: number, rng: SeededPRNG): THREE.BufferGeometry {
+    const radialSegs = 14;
+    const heightSegs = 20;
+    const totalH = height + 2.0;
+
+    const leanDir = rng.range(0, Math.PI * 2);
+    const leanAmp = rng.range(0.4, 0.9);
+    const curveFreq = rng.range(0.8, 1.2);
+    const baseRadius = rng.range(0.30, 0.42);
+    const topRadius = rng.range(0.10, 0.16);
+
+    const vertices: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+
+    for (let j = 0; j <= heightSegs; j++) {
+      const v = j / heightSegs;
+      const y = -2.0 + v * totalH;
+      const t = v;
+
+      const cx = Math.sin(t * Math.PI * curveFreq) * leanAmp * Math.cos(leanDir) * t;
+      const cz = Math.sin(t * Math.PI * curveFreq) * leanAmp * Math.sin(leanDir) * t;
+      const r = THREE.MathUtils.lerp(baseRadius, topRadius, Math.pow(t, 0.75));
+
+      for (let i = 0; i <= radialSegs; i++) {
+        const u = i / radialSegs;
+        const angle = u * Math.PI * 2;
+        vertices.push(cx + Math.cos(angle) * r, y, cz + Math.sin(angle) * r);
+        uvs.push(u, (y + 2.0) / 3.0);
+      }
+    }
+
+    const stride = radialSegs + 1;
+    for (let j = 0; j < heightSegs; j++) {
+      for (let i = 0; i < radialSegs; i++) {
+        const a = j * stride + i;
+        const b = (j + 1) * stride + i;
+        const c = (j + 1) * stride + (i + 1);
+        const d = j * stride + (i + 1);
+        indices.push(a, b, d);
+        indices.push(b, c, d);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
     geo.computeVertexNormals();
     this.treeGeometries.push(geo);
     return geo;
   }
 
   /**
-   * Creates large emergent rainforest trees with buttress roots, surface roots, branches, hanging lianas, and towering umbrella crowns.
+   * Creates large emergent rainforest trees with buttress roots, surface roots, branches, hanging lianas,
+   * and soaring layered hierarchical foliage clusters.
    */
   private buildTrees() {
     const treePositions = [
@@ -669,10 +818,18 @@ export class RainforestVegetation {
         treeGroup.add(rootMesh);
       }
 
-      // 3. Branches: 4 to 6 major branches at staggered heights
+      // 3. Canopy Builder: Accumulate all clusters for this macro tree into a unified geometry
+      const canopyBuilder = {
+        vertices: [] as number[],
+        uvs: [] as number[],
+        indices: [] as number[],
+        vertexOffset: 0,
+      };
+
+      // 4. Branches: 4 to 6 major branches at high canopy heights (60% to 84% of tree height)
       const branchCount = rng.int(4, 5);
       for (let b = 0; b < branchCount; b++) {
-        const branchH = tp.h * (0.50 + (b / branchCount) * 0.32 + rng.range(-0.02, 0.03));
+        const branchH = tp.h * (0.60 + (b / branchCount) * 0.24 + rng.range(-0.02, 0.02));
         const t_b = Math.max(0.0, Math.min(1.0, (branchH + 3.5) / (tp.h + 3.5)));
 
         const cx_b = (Math.sin(t_b * Math.PI * trunkData.curveFreq) * trunkData.leanAmp +
@@ -684,7 +841,7 @@ export class RainforestVegetation {
         const r_b = THREE.MathUtils.lerp(trunkData.baseRadius, trunkData.topRadius, Math.pow(t_b, 0.85));
 
         const branchAngle = (b / branchCount) * Math.PI * 2 + rng.range(-0.30, 0.30) + treeIdx * 0.45;
-        const branchLen = rng.range(6.5, 9.2);
+        const branchLen = rng.range(7.0, 10.2);
         const baseR = rng.range(0.38, 0.46);
         const tipR = rng.range(0.16, 0.22);
         const archFactor = rng.range(0.28, 0.38);
@@ -723,19 +880,45 @@ export class RainforestVegetation {
         lianaMesh.castShadow = true;
         treeGroup.add(lianaMesh);
 
-        // 5. Canopy clump at branch tip
-        const canopyRadius = rng.range(4.8, 5.8);
-        const canopyThick = rng.range(2.4, 2.9);
-        const branchCanopyGeo = this.createUmbrellaCanopyGeometry(canopyRadius, canopyThick);
-        const branchCanopyMesh = new THREE.Mesh(branchCanopyGeo, this.canopyMaterial);
-        branchCanopyMesh.position.copy(localTip);
-        branchCanopyMesh.castShadow = true;
-        branchCanopyMesh.receiveShadow = true;
-        treeGroup.add(branchCanopyMesh);
+        // 5. Macro Foliage Cluster at Branch Tip
+        const tipClusterR = rng.range(5.2, 6.4);
+        const tipClusterH = rng.range(3.0, 3.8);
+        this.appendFoliageClusterToBuilder(
+          canopyBuilder,
+          tipClusterR,
+          tipClusterH,
+          rng,
+          9,
+          localTip,
+          new THREE.Euler(pitch * 0.4, branchAngle, rng.range(-0.2, 0.2))
+        );
 
-        // 6. Secondary branch split (on 1-2 branches per tree)
+        // 6. Meso Foliage Cluster along mid-branch span
+        const midBranchDist = branchLen * 0.58;
+        const midBranchPos = new THREE.Vector3(
+          curveDir * midBranchDist * 0.10,
+          midBranchDist * 0.85,
+          midBranchDist * archFactor * 0.55
+        );
+        midBranchPos.applyEuler(branchMesh.rotation);
+        midBranchPos.add(branchMesh.position);
+        midBranchPos.y += rng.range(0.3, 0.8);
+
+        const midClusterR = rng.range(3.4, 4.4);
+        const midClusterH = rng.range(2.2, 3.0);
+        this.appendFoliageClusterToBuilder(
+          canopyBuilder,
+          midClusterR,
+          midClusterH,
+          rng,
+          7,
+          midBranchPos,
+          new THREE.Euler(pitch * 0.3, branchAngle + rng.range(-0.3, 0.3), 0)
+        );
+
+        // 7. Secondary branch split (on 1-2 branches per tree)
         if (b === 0 || b === 2) {
-          const subBranchLen = rng.range(3.8, 5.0);
+          const subBranchLen = rng.range(4.0, 5.4);
           const subBaseR = baseR * 0.65;
           const subTipR = tipR * 0.75;
           const subGeo = this.createBranchGeometry(subBranchLen, subBaseR, subTipR, 0.3, -curveDir);
@@ -754,29 +937,167 @@ export class RainforestVegetation {
           subMesh.receiveShadow = true;
           treeGroup.add(subMesh);
 
-          // Sub-branch canopy clump
+          // Sub-branch tip position
           const subTip = new THREE.Vector3(0, subBranchLen * 0.85, subBranchLen * 0.28);
           subTip.applyEuler(subMesh.rotation);
           subTip.add(subMesh.position);
 
-          const subCanopyGeo = this.createUmbrellaCanopyGeometry(3.8, 2.0);
-          const subCanopyMesh = new THREE.Mesh(subCanopyGeo, this.canopyMaterial);
-          subCanopyMesh.position.copy(subTip);
-          subCanopyMesh.castShadow = true;
-          subCanopyMesh.receiveShadow = true;
-          treeGroup.add(subCanopyMesh);
+          // Sub-branch Meso Foliage Cluster
+          const subClusterR = rng.range(3.6, 4.6);
+          const subClusterH = rng.range(2.2, 2.8);
+          this.appendFoliageClusterToBuilder(
+            canopyBuilder,
+            subClusterR,
+            subClusterH,
+            rng,
+            7,
+            subTip,
+            new THREE.Euler(subPitch * 0.4, subAngle, 0)
+          );
         }
       }
 
-      // 7. Central towering umbrella crown
-      const topCanopyGeo = this.createUmbrellaCanopyGeometry(rng.range(6.8, 7.6), rng.range(3.2, 3.6));
-      const topCanopyMesh = new THREE.Mesh(topCanopyGeo, this.canopyMaterial);
-      topCanopyMesh.position.set(0, tp.h - 1.2, 0);
-      topCanopyMesh.castShadow = true;
-      topCanopyMesh.receiveShadow = true;
-      treeGroup.add(topCanopyMesh);
+      // 8. Central Emergent Crown: Multi-spray crown replacing single giant dome
+      this.appendFoliageClusterToBuilder(
+        canopyBuilder,
+        rng.range(6.2, 7.5),
+        rng.range(3.6, 4.6),
+        rng,
+        11,
+        new THREE.Vector3(0, tp.h - 0.2, 0)
+      );
+
+      const satCount = rng.int(2, 3);
+      for (let s = 0; s < satCount; s++) {
+        const satAngle = (s / satCount) * Math.PI * 2 + rng.range(-0.3, 0.3);
+        const satDist = rng.range(3.4, 5.0);
+        this.appendFoliageClusterToBuilder(
+          canopyBuilder,
+          rng.range(4.5, 5.6),
+          rng.range(2.8, 3.6),
+          rng,
+          8,
+          new THREE.Vector3(
+            Math.cos(satAngle) * satDist,
+            tp.h - rng.range(1.2, 2.4),
+            Math.sin(satAngle) * satDist
+          )
+        );
+      }
+
+      // Build unified canopy mesh for this tree (drastically reduces draw calls)
+      const canopyGeo = new THREE.BufferGeometry();
+      canopyGeo.setAttribute('position', new THREE.Float32BufferAttribute(canopyBuilder.vertices, 3));
+      canopyGeo.setAttribute('uv', new THREE.Float32BufferAttribute(canopyBuilder.uvs, 2));
+      canopyGeo.setIndex(canopyBuilder.indices);
+      canopyGeo.computeVertexNormals();
+      this.treeGeometries.push(canopyGeo);
+
+      const canopyMesh = new THREE.Mesh(canopyGeo, this.canopyMaterial);
+      canopyMesh.castShadow = true;
+      canopyMesh.receiveShadow = true;
+      treeGroup.add(canopyMesh);
 
       this.treesGroup.add(treeGroup);
+    });
+  }
+
+  /**
+   * Generates mid-story understory trees (6–15m height layer) filling the spatial gap
+   * between the forest floor and high emergent canopy, respecting camera corridors.
+   */
+  private buildMidStoryTrees() {
+    const midStoryConfigs = [
+      { x: -11.5, z: -4.0, scale: 0.95, h: 12.5, seed: 1101 },
+      { x: 12.0, z: 3.5, scale: 1.05, h: 13.5, seed: 1202 },
+      { x: -14.0, z: 9.5, scale: 0.90, h: 11.0, seed: 1303 },
+      { x: 8.5, z: 13.5, scale: 1.00, h: 12.0, seed: 1404 },
+      { x: -6.5, z: -17.5, scale: 1.10, h: 14.5, seed: 1505 },
+      { x: 7.5, z: -18.5, scale: 1.00, h: 13.0, seed: 1606 },
+      { x: 19.5, z: -1.5, scale: 1.05, h: 14.0, seed: 1707 },
+      { x: -19.5, z: -6.5, scale: 0.95, h: 11.5, seed: 1808 },
+      { x: 12.5, z: -14.5, scale: 0.90, h: 10.5, seed: 1909 },
+      { x: -4.5, z: 22.0, scale: 1.00, h: 12.0, seed: 2010 },
+    ];
+
+    midStoryConfigs.forEach((cfg) => {
+      const rng = new SeededPRNG(cfg.seed);
+      const groundY = RainforestTerrain.sampleHeight(cfg.x, cfg.z);
+
+      const treeGroup = new THREE.Group();
+      treeGroup.position.set(cfg.x, groundY, cfg.z);
+      treeGroup.scale.set(cfg.scale, cfg.scale, cfg.scale);
+
+      // Slender trunk
+      const trunkGeo = this.createSlenderTrunkGeometry(cfg.h, rng);
+      const trunkMesh = new THREE.Mesh(trunkGeo, this.trunkMaterial);
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      treeGroup.add(trunkMesh);
+
+      // Mid-story Canopy Builder: Accumulate all clusters for this understory tree into a unified geometry
+      const midCanopyBuilder = {
+        vertices: [] as number[],
+        uvs: [] as number[],
+        indices: [] as number[],
+        vertexOffset: 0,
+      };
+
+      // 2 to 3 branches
+      const branchCount = rng.int(2, 3);
+      for (let b = 0; b < branchCount; b++) {
+        const branchH = cfg.h * (0.60 + (b / branchCount) * 0.25);
+        const branchAngle = (b / branchCount) * Math.PI * 2 + rng.range(-0.35, 0.35);
+        const branchLen = rng.range(3.2, 4.8);
+        const branchGeo = this.createBranchGeometry(branchLen, 0.18, 0.08, 0.32, rng.range(-0.8, 0.8));
+        const branchMesh = new THREE.Mesh(branchGeo, this.trunkMaterial);
+
+        branchMesh.position.set(0, branchH, 0);
+        branchMesh.rotation.set(rng.range(0.6, 0.8), branchAngle, rng.range(-0.15, 0.15));
+        branchMesh.castShadow = true;
+        branchMesh.receiveShadow = true;
+        treeGroup.add(branchMesh);
+
+        // Branch tip cluster
+        const tipPos = new THREE.Vector3(0, branchLen * 0.85, branchLen * 0.32);
+        tipPos.applyEuler(branchMesh.rotation);
+        tipPos.add(branchMesh.position);
+
+        this.appendFoliageClusterToBuilder(
+          midCanopyBuilder,
+          rng.range(2.6, 3.4),
+          rng.range(1.6, 2.2),
+          rng,
+          6,
+          tipPos
+        );
+      }
+
+      // Apex crown cluster
+      this.appendFoliageClusterToBuilder(
+        midCanopyBuilder,
+        rng.range(3.0, 3.8),
+        rng.range(2.0, 2.6),
+        rng,
+        7,
+        new THREE.Vector3(0, cfg.h - 0.4, 0)
+      );
+
+      // Build unified canopy mesh for this mid-story tree
+      const midCanopyGeo = new THREE.BufferGeometry();
+      midCanopyGeo.setAttribute('position', new THREE.Float32BufferAttribute(midCanopyBuilder.vertices, 3));
+      midCanopyGeo.setAttribute('uv', new THREE.Float32BufferAttribute(midCanopyBuilder.uvs, 2));
+      midCanopyGeo.setIndex(midCanopyBuilder.indices);
+      midCanopyGeo.computeVertexNormals();
+      this.treeGeometries.push(midCanopyGeo);
+
+      const midCanopyMesh = new THREE.Mesh(midCanopyGeo, this.canopyMaterial);
+      midCanopyMesh.castShadow = true;
+      midCanopyMesh.receiveShadow = true;
+      treeGroup.add(midCanopyMesh);
+
+      this.midStoryTrees.push(treeGroup);
+      this.midStoryGroup.add(treeGroup);
     });
   }
 
@@ -978,6 +1299,12 @@ export class RainforestVegetation {
         tier === 'LOW' ? 0.5 : tier === 'MEDIUM' ? 0.75 : tier === 'HIGH' ? 0.88 : 0.95;
     }
 
+    const midStoryActiveCount =
+      tier === 'LOW' ? 4 : tier === 'MEDIUM' ? 6 : tier === 'HIGH' ? 8 : 10;
+    for (let i = 0; i < this.midStoryTrees.length; i++) {
+      this.midStoryTrees[i].visible = i < midStoryActiveCount;
+    }
+
     if (tier === 'LOW') {
       this.broadleafInstanced.count = 80;
       this.fernInstanced.count = 100;
@@ -1014,5 +1341,6 @@ export class RainforestVegetation {
       geo.dispose();
     }
     this.treeGeometries = [];
+    this.midStoryTrees = [];
   }
 }
