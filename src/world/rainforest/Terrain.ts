@@ -6,6 +6,7 @@ export class RainforestTerrain {
   public mesh: THREE.Mesh;
   public material: THREE.ShaderMaterial;
   private geometry: THREE.PlaneGeometry;
+  private isTransitioning: boolean = false;
 
   constructor(sunDirection: THREE.Vector3) {
     // 240m x 240m terrain with 120x120 resolution for smooth organic curvature within triangle budget
@@ -27,8 +28,9 @@ export class RainforestTerrain {
     this.material = new THREE.ShaderMaterial({
       vertexShader: terrainVertexShader,
       fragmentShader: terrainFragmentShader,
-      transparent: true,
+      transparent: false,
       depthWrite: true,
+      depthTest: true,
       uniforms: {
         uTime: { value: 0 },
         uSunDirection: { value: sunDirection },
@@ -101,6 +103,15 @@ export class RainforestTerrain {
   public setTransitionWeight(weight: number) {
     this.material.uniforms.uTransitionWeight.value = weight;
     this.mesh.visible = weight > 0.001;
+
+    const isTransitioning = weight > 0.001 && weight < 0.999;
+    if (this.isTransitioning !== isTransitioning) {
+      this.isTransitioning = isTransitioning;
+      this.material.transparent = isTransitioning;
+      this.material.depthWrite = !isTransitioning;
+      this.material.depthTest = true;
+      this.material.needsUpdate = true;
+    }
   }
 
   public setQualityTier(tier: QualityTier) {

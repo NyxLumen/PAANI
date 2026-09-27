@@ -6,9 +6,13 @@ import { QualityTier } from '../../core/QualityManager';
 export class RainforestVegetation {
   public group: THREE.Group;
 
-  // Foliage materials
+  // Foliage materials representing physical scene geometry
   public foliageMaterial: THREE.ShaderMaterial;
+  public heroLeafMaterial: THREE.ShaderMaterial;
+  public canopyMaterial: THREE.ShaderMaterial;
   public trunkMaterial: THREE.MeshStandardMaterial;
+
+  private isTransitioning: boolean = false;
 
   // Meshes
   private treesGroup: THREE.Group;
@@ -26,8 +30,9 @@ export class RainforestVegetation {
       vertexShader: foliageVertexShader,
       fragmentShader: foliageFragmentShader,
       side: THREE.DoubleSide,
-      transparent: true,
+      transparent: false,
       depthWrite: true,
+      depthTest: true,
       uniforms: {
         uTime: { value: 0 },
         uSunDirection: { value: sunDirection },
@@ -49,11 +54,17 @@ export class RainforestVegetation {
       roughness: 0.85,
       metalness: 0.04,
       emissive: new THREE.Color(0x142012), // subtle warm mossy bark bounce
-      transparent: true,
+      transparent: false,
+      depthWrite: true,
+      depthTest: true,
       opacity: 1.0,
     });
 
-    // 3. Build Macro Canopy Trees
+    // 3. Tree Canopy Clump Material
+    this.canopyMaterial = this.foliageMaterial.clone();
+    delete (this.canopyMaterial as any).defines.USE_INSTANCING;
+
+    // 4. Build Macro Canopy Trees
     this.treesGroup = new THREE.Group();
     this.buildTrees();
     this.group.add(this.treesGroup);
@@ -74,9 +85,9 @@ export class RainforestVegetation {
 
     // 6. Build The Specific Hero Leaf
     // Custom non-instanced mesh for close-up drop interaction
-    const heroLeafMat = this.foliageMaterial.clone();
-    delete (heroLeafMat as any).defines.USE_INSTANCING;
-    this.heroLeafMesh = new THREE.Mesh(this.createHeroLeafGeometry(), heroLeafMat);
+    this.heroLeafMaterial = this.foliageMaterial.clone();
+    delete (this.heroLeafMaterial as any).defines.USE_INSTANCING;
+    this.heroLeafMesh = new THREE.Mesh(this.createHeroLeafGeometry(), this.heroLeafMaterial);
     // Positioned gracefully arching forward and downward over the depression puddle
     this.heroLeafMesh.position.set(0.0, 4.35, 1.8);
     this.heroLeafMesh.rotation.set(0.10, 0.0, 0.0);
@@ -426,9 +437,6 @@ export class RainforestVegetation {
       { x: -28, z: -2, scale: 1.7, h: 26 },
     ];
 
-    const canopyMat = this.foliageMaterial.clone();
-    delete (canopyMat as any).defines.USE_INSTANCING;
-
     treePositions.forEach((tp, treeIdx) => {
       const groundY = RainforestTerrain.sampleHeight(tp.x, tp.z);
       const treeGroup = new THREE.Group();
@@ -468,7 +476,7 @@ export class RainforestVegetation {
 
         // 4. Canopy clump at branch tip
         const branchCanopyGeo = this.createUmbrellaCanopyGeometry(5.2, 2.6);
-        const branchCanopyMesh = new THREE.Mesh(branchCanopyGeo, canopyMat);
+        const branchCanopyMesh = new THREE.Mesh(branchCanopyGeo, this.canopyMaterial);
         const tipX = Math.sin(branchAngle) * (branchLen * 0.85);
         const tipZ = Math.cos(branchAngle) * (branchLen * 0.85);
         branchCanopyMesh.position.set(tipX, forkHeight + branchLen * 0.6, tipZ);
@@ -479,7 +487,7 @@ export class RainforestVegetation {
 
       // 5. Central towering umbrella crown
       const topCanopyGeo = this.createUmbrellaCanopyGeometry(7.2, 3.4);
-      const topCanopyMesh = new THREE.Mesh(topCanopyGeo, canopyMat);
+      const topCanopyMesh = new THREE.Mesh(topCanopyGeo, this.canopyMaterial);
       topCanopyMesh.position.set(0, tp.h - 1.2, 0);
       topCanopyMesh.castShadow = true;
       topCanopyMesh.receiveShadow = true;
@@ -618,11 +626,14 @@ export class RainforestVegetation {
     this.foliageMaterial.uniforms.uTime.value = time;
     this.foliageMaterial.uniforms.uCameraPosition.value.copy(cameraPos);
 
-    // Update hero leaf material uniforms
-    const heroMat = this.heroLeafMesh.material as THREE.ShaderMaterial;
-    if (heroMat.uniforms) {
-      heroMat.uniforms.uTime.value = time;
-      heroMat.uniforms.uCameraPosition.value.copy(cameraPos);
+    if (this.heroLeafMaterial.uniforms) {
+      this.heroLeafMaterial.uniforms.uTime.value = time;
+      this.heroLeafMaterial.uniforms.uCameraPosition.value.copy(cameraPos);
+    }
+
+    if (this.canopyMaterial && this.canopyMaterial.uniforms) {
+      this.canopyMaterial.uniforms.uTime.value = time;
+      this.canopyMaterial.uniforms.uCameraPosition.value.copy(cameraPos);
     }
 
     // Drift spore motes gently in warm thermal currents
@@ -637,12 +648,37 @@ export class RainforestVegetation {
 
   public setTransitionWeight(weight: number) {
     this.foliageMaterial.uniforms.uTransitionWeight.value = weight;
-    const heroMat = this.heroLeafMesh.material as THREE.ShaderMaterial;
-    if (heroMat.uniforms) {
-      heroMat.uniforms.uTransitionWeight.value = weight;
+    if (this.heroLeafMaterial.uniforms) {
+      this.heroLeafMaterial.uniforms.uTransitionWeight.value = weight;
+    }
+    if (this.canopyMaterial && this.canopyMaterial.uniforms) {
+      this.canopyMaterial.uniforms.uTransitionWeight.value = weight;
     }
     this.trunkMaterial.opacity = weight;
     this.group.visible = weight > 0.001;
+
+    // Physical scene geometry is opaque by default (fully established or inactive).
+    // It is temporarily set transparent (with depthWrite: false) strictly during the crossfade interval.
+    const isTransitioning = weight > 0.001 && weight < 0.999;
+    if (this.isTransitioning !== isTransitioning) {
+      this.isTransitioning = isTransitioning;
+      const targetTransparent = isTransitioning;
+      const targetDepthWrite = !isTransitioning;
+
+      this.applyPhysicalMaterialState(this.foliageMaterial, targetTransparent, targetDepthWrite);
+      this.applyPhysicalMaterialState(this.heroLeafMaterial, targetTransparent, targetDepthWrite);
+      if (this.canopyMaterial) {
+        this.applyPhysicalMaterialState(this.canopyMaterial, targetTransparent, targetDepthWrite);
+      }
+      this.applyPhysicalMaterialState(this.trunkMaterial, targetTransparent, targetDepthWrite);
+    }
+  }
+
+  private applyPhysicalMaterialState(mat: THREE.Material, transparent: boolean, depthWrite: boolean) {
+    mat.transparent = transparent;
+    mat.depthWrite = depthWrite;
+    mat.depthTest = true;
+    mat.needsUpdate = true;
   }
 
   public setQualityTier(tier: QualityTier) {
@@ -668,6 +704,10 @@ export class RainforestVegetation {
 
   public destroy() {
     this.foliageMaterial.dispose();
+    this.heroLeafMaterial.dispose();
+    if (this.canopyMaterial) {
+      this.canopyMaterial.dispose();
+    }
     this.trunkMaterial.dispose();
     this.broadleafInstanced.geometry.dispose();
     this.fernInstanced.geometry.dispose();
